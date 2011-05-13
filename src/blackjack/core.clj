@@ -43,7 +43,8 @@
 (defn test-hand
   "Shows the rank of an initial deal."
   [deck]
-  (rank-hand (take 2 deck)))
+  (rank-hand (map #(assoc % :showing? true)
+                  (take 2 deck))))
 
 (defn percent-chance
   [score n]
@@ -56,18 +57,34 @@
         cts (count hand-seq)]
     (/ cts (* n 26.))))
 
+(def test-deck (ref [0 1 2 3 4]))
+(def test-hand (ref []))
+
+;; ## Game Loop Functions.
+
 (defn valid? [input]
   (when (= input "face")
-    (println "Excellent, paduan.")))
+    "Excellent, paduan."))
+
+(defn prompt [message]
+  (println message)
+  (read-line))
+
+(defn get-username []
+  (prompt "What is your username?"))
+
+(defn get-move []
+  (prompt "What is your move? Your choices are hit, stay, or exit."))
 
 (defn run []
-  (println "What is your decision?")
-  (if-let [v (valid? (read-line))]
-    v
-    (do
-      (println "That is not valid")
-      (recur))))
-
-(defn -main []
-  (run))
-
+  (let [user-name (get-username)]
+    (loop []
+      (let [move (get-move)]
+        (if (= move "exit")
+          (println "Goodbye :(")
+          (do (println (case move
+                             "exit" 
+                             "hit"  "impressive."
+                             "stay" "Nice move!"
+                             "Sorry, didn't understand that one."))
+              (recur)))))))
