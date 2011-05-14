@@ -134,6 +134,38 @@
       [score (+ 10 score)]
       [score])))
 
+(defn push? []
+  "COMING")
+
+(defn beats?
+  "TODO: Think about PUSH!!! We want the highest hands that aren't
+  busted to equal each other."
+  [hand1 hand2]
+  (map (comp (partial filter #(<= % 21))
+             score-hand)
+       [hand1 hand2]))
+
+(defn over-16?
+  [hand]
+  (every? #(>= % 17) (score-hand hand)))
+
+(defn blackjack?
+  "Determines whether or not the given hand is a blackjack."
+  [hand]
+  (and (= 2 (count @hand))
+       (some #{21} (score-hand hand))))
+
+(defn busted?
+  [hand]
+  (not (some #(<= % 21) (score-hand hand))))
+
+(defn check-winners
+  [dealer-hand player-hand]
+  (cond (push? dealer-hand player-hand) "Push!"
+        (beats? player-hand dealer-hand) "Player wins."
+        :else "Dealer wins."))
+
+
 ;; ## Text Representations
 
 (defn print-hand
@@ -147,12 +179,20 @@
                       (name suit)
                       (if showing? "up" "down"))))))
 
+(defn score-str
+  "Returns a string representation of the score of the game."
+  [hand]
+  (->> (score-hand hand)
+       (filter #(<= % 21))
+       (interpose "/" )
+       (apply str)))
+
 (defn print-hands
   [dealer-hand player-hand]
   (doseq [[hand title show?] [[dealer-hand "the dealer's" false]
                               [player-hand "your" true]]]
     (println "\n" (format "Here's %s hand (worth %s points):"
-                          title (score-hand hand)))
+                          title (score-str hand)))
     (print-hand hand show?))
   (println))
 
@@ -167,14 +207,6 @@
 
 (defn get-move []
   (prompt "What is your move? Your choices are hit, stay, or exit."))
-
-(defn busted?
-  [hand]
-  (not (some #(<= % 21) (score-hand hand))))
-
-(defn blackjack?
-  [hand]
-  (some #{21} (score-hand hand)))
 
 ;; TODO: Check the atom thing, for the chips.
 ;;
@@ -203,6 +235,7 @@
           (initial-deal game))
       (prompt "Nice job! Hit enter to continue."))))
 
+
 (defn start []
   (let [player-name (get-username)
         game (new-game 500 *total-decks*)
@@ -219,3 +252,18 @@
                     "stay" (println "Dealer does his thing!")
                     (println "Sorry, didn't understand that one."))
               (recur)))))))
+
+
+;; WISHFUL THINKING
+
+;; (blackjack? player-hand) "Blackjack!"
+
+;; TODO: Clean up.
+(defn enact-dealer
+  [deck dealer-hand player-hand]
+  (loop []
+    (print-hands dealer-hand player-hand)
+    (if (over-16? dealer-hand)
+      (check-winners dealer-hand player-hand)
+      (do (play-hit deck dealer-hand)
+          (recur)))))

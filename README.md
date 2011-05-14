@@ -1,6 +1,12 @@
 I'd like to map out the course of the initial game, given that we'll
 be using text.
 
+TODO:
+
+* gotta implement soft vs hard push.
+
+http://www.pagat.com/banking/blackjack.html
+
 # BLACKJACK #
 
 ### Hitting ###
