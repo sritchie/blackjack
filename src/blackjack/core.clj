@@ -27,10 +27,10 @@
             :nine 9
             :ten 10 :jack 10 :queen 10 :king 10})
 
-;; Deck generates every card in the deck, representing a card as a map
-;; with `:suit`, `:rank` and `:showing?`, to let us know if it's face
-;; up. This is going to be helpful in calculating the percent chance
-;; of winning a specific hand.
+;; `deck-gen` generates every card in the deck, representing a card as
+;; a map with `:suit`, `:rank` and `:showing?`, to let us know if it's
+;; face up. This is going to be helpful in calculating the percent
+;; chance of winning a specific hand.
 ;;
 ;; Interesting to note that we can't actually use a set to represent a
 ;; hand, if we're going to have multiple decks.
@@ -41,12 +41,13 @@
     {:suit suit :rank rank :showing? false}))
 
 (defn shuffle
+  "Shuffled the supplied (dereffed) decks together."
   [& decks]
   (clojure.core/shuffle (reduce into decks)))
 
 (defn new-deck
   "Returns a new, shuffled deck. If n is supplied, returns `n` decks
-shuffle together."
+   shuffled together."
   ([] (shuffle deck-gen))
   ([n]
      {:pre [(pos? n)]}
@@ -60,11 +61,11 @@ shuffle together."
 
 ;; ## Game Play Mechanics
 
-(defn add-card
+(defn add-cards
   "Adds the given item to a hand collection. Must be wrapped in a
   dosync transaction."
-  [hand card]
-  (alter hand conj card))
+  [hand card-seq]
+  (alter hand into card-seq))
 
 ;; TODO: deal with the fact that the deck might become empty. We can't
 ;; just add a new deck! But once the six decks are exhausted, we're
@@ -76,17 +77,25 @@ shuffle together."
 ;; after the turn we shuffle the discards back into the deck. This has
 ;; to reset our card counting, of course.
 
-(defn deal-card
+(defn deal-cards
   "Deals a card from the supplied deck into the supplied hand. If the
   deck is empty, the deck will be refreshed before dealing a card out
   to the players."
-  [deck hand]
-  (dosync
-   (if-let [f (first @deck)]
-     (do (ref-set deck (vec (rest @deck)))
-         (add-card hand f))
-     (do (ref-set deck (new-deck *total-decks*))
-         (add-card hand (first @deck))))))
+  [deck hand count & {:keys [show?]}]
+  (let [set-show (partial map #(assoc % :showing? (boolean show?)))]
+    (dosync
+     (if-let [f (take count @deck)]
+       (do (ref-set deck (vec (drop count @deck)))
+           (add-cards hand (set-show f)))
+       (do (ref-set deck (new-deck *total-decks*))
+           (add-cards hand (set-show (take count @deck))))))))
+
+;; TODO: This needs some work, as a hit isn't this simple, of course.
+
+(defn play-hit
+  [deck dealer-hand player-hand]
+  (deal-cards deck player-hand 1)
+  (deal-cards deck dealer-hand 1))
 
 (defn dump-hand
   "Dumps the contents of the hand into the given discard pile, and
@@ -103,15 +112,19 @@ shuffle together."
 ;; ### Hand Ranking
 
 (defn rank-hand
-  "Returns the two possible ranks of any given deal. "
-  [card-seq]
-  (reduce (fn [[r1 r2] card]
-            (if (= card :ace)
-              [(inc r1) (+ r1 11)]
-              [(+ r1 (card ranks)) (+ r2 (card ranks))]))
-          [0 0]
-          (for [card card-seq]
-            (:rank card))))
+  "Returns the two possible ranks of any given deal. An ace can never
+  count as 11 more than once, as this would cause an instant bust --
+  we accept an optional argument that returns the highest possible
+  value of rank, based on the presence of an ace."
+  [card-seq & {:keys [highest?]}]
+  (let [rank (reduce (fn [acc card]
+                       (+ acc (card ranks)))
+                     0
+                     (for [card card-seq]
+                       (:rank card)))]
+    (if (and highest? (some #{:ace} (map :rank card-seq)))
+      (+ 10 rank)
+      rank)))
 
 (defn rank-initial-deal
   "Shows the rank of an initial deal."
@@ -119,8 +132,12 @@ shuffle together."
   (rank-hand (map #(assoc % :showing? true)
                   (take 2 deck))))
 
+
+;; ### Meaningless Testing
+
 (defn percent-chance
-  "Show the percent chance of getting the given score for a "
+  "Show the percent chance of getting the given score over `n` number
+  of trials."
   [score n]
   (let [hand-seq (filter #(= score %)
                          (flatten
@@ -131,11 +148,32 @@ shuffle together."
         cts (count hand-seq)]
     (/ cts (* n 26.))))
 
-;; ## Game Loop Functions.
 
-(defn valid? [input]
-  (when (= input "face")
-    "Excellent, paduan."))
+;; ## Text Representations
+;;
+;; We need a way to show what a hand looks like!
+
+(defn print-hand
+  "Prints out a text representation of the supplied hand."
+  [hand show-hidden?]
+  (doseq [card hand :let [{:keys [suit rank showing?]} card]]
+    (println (if (and (not showing?) (not show-hidden?))
+               "Face down card!"
+               (format "%s of %s (face %s)"
+                      (name rank)
+                      (name suit)
+                      (if showing? "up" "down"))))))
+
+(defn print-hands
+  [dealer-hand player-hand]
+  (doseq [[hand title show?] [[dealer-hand "the dealer's" false]
+                              [player-hand "your" true]]]
+    (println "\n" (format "Here's %s hand (worth %d points):"
+                          title (rank-hand hand)))
+    (print-hand hand show?))
+  (println))
+
+;; ## Game Loop Functions.
 
 (defn prompt [message]
   (println message)
@@ -147,15 +185,34 @@ shuffle together."
 (defn get-move []
   (prompt "What is your move? Your choices are hit, stay, or exit."))
 
-(defn run []
-  (let [user-name (get-username)]
+(defn failure-test
+  "Takes in any number of hands, and decides if one of these hands has
+  caused a bust."
+  [& hands]
+  (if (->> hands
+           (map (comp #(rank-hand % :highest? true)
+                      deref))
+           (some #(>= % 21)))
+    (println "You've busted!!")
+    (println "still playing :)")))
+
+
+(defn start []
+  (let [player-name (get-username)
+        deck (ref (new-deck *total-decks*))
+        discard (ref [])
+        player-hand (ref (new-hand))
+        dealer-hand (ref (new-hand))]
+    (doseq [hand [player-hand dealer-hand]]
+      (deal-cards deck hand 2 :show? true))
     (loop []
+      (print-hands @dealer-hand @player-hand)
       (let [move (get-move)]
         (if (= move "exit")
           (println "Goodbye :(")
-          (do (println (case move
-                             "exit" 
-                             "hit"  "impressive."
-                             "stay" "Nice move!"
-                             "Sorry, didn't understand that one."))
+          (do (case move
+                    "hit"  (play-hit deck dealer-hand player-hand)
+                    "stay" (println "Nice move!")
+                    (println "Sorry, didn't understand that one."))
+              (failure-test dealer-hand player-hand)
               (recur)))))))
