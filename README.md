@@ -6,12 +6,29 @@ be using text.
 ### Hitting ###
 
 When the user hits:
-* Get a card for the deck.
+* Get a card from the deck.
 * Check if I busted.
-* If I DIDN'T bust, then the dealer has to calculate what he does. If he has 17 or under, he absolutely has to hit. If not, he should always stay... I think.
 * Go back to beginning of the turn.
+
+     (loop []
+       (print-hands dealer-hand player-hand)
+       (let [move (get-move)]    
+         (case move
+               "hit" (do (do-hit player-hand)
+                         (cond (blackjack? player-hand) "automatic stay."
+                         (bust? player-hand) "you busted."
+                         (recur)))
+                "stay" (enact-dealer-hand)
+                "exit" "Goodbye!"
+                "Hmm, sorry, I didn't get that.")))
 
 ### Staying ###
 
-* Is it true that if both people stay, they reveal their cards?
-* If I stay, same thing happens as with the non-busting situation. Other player has to hit.
+* If I stay, here's the dealer's case:
+
+        (loop []
+          (cond (blackjack? dealer-hand) (if (blackjack? player-hand) "Push!" "He wins.")
+                (bust? dealer-hand) "I win."
+                (under-17? dealer-hand)  (do (do-hit dealer-hand)
+                                             (recur))
+                (check-winners dealer-hand player-hand))
