@@ -1,4 +1,4 @@
-(ns blackjack.core-test
+(ns backtype.blackjack.core-test
   (:use [blackjack.core] :reload))
 
 (def test-hand

@@ -1,4 +1,4 @@
-(ns blackjack.core
+(ns backtype.blackjack.core
   (:refer-clojure :exclude [shuffle]))
 
 ;; ## Blackjack
@@ -124,7 +124,7 @@
   count as 11 more than once, as this would cause an instant bust --
   we accept an optional argument that returns the highest possible
   value of rank, based on the presence of an ace."
-  [hand & {:keys [highest?]}]
+  [hand]
   (let [rank-seq (map :rank @hand)
         score (reduce (fn [acc card]
                         (+ acc (card ranks)))
@@ -170,8 +170,11 @@
 
 (defn busted?
   [hand]
-  (some #(> % 21)
-        (score-hand hand :highest? true)))
+  (not (some #(<= % 21) (score-hand hand))))
+
+(defn blackjack?
+  [hand]
+  (some #{21} (score-hand hand)))
 
 ;; TODO: Check the atom thing, for the chips.
 ;;
@@ -186,16 +189,18 @@
         (deal-cards deck dealer-hand 1 :show? true)
         (deal-cards deck dealer-hand 1 :show? false))))
 
-(defn failure-test
+(defn resolve-turn
   "Takes in any number of hands, and decides if one of these hands has
   caused a bust."
   [game]
   (let [{:keys [deck discard dealer-hand player-hand]} game]
     (print-hands dealer-hand player-hand)
-    (if (busted? player-hand)
-      (do (prompt "Sorry, you busted. Please hit enter to proceed.")
+    (if (or (blackjack? player-hand) (busted? player-hand))
+      (do (prompt (if (busted? player-hand)
+                    "Sorry, you busted. Please hit enter to proceed."
+                    "Blackjack!!! Please hit enter to proceed."))
           (dump-hands discard dealer-hand player-hand)
-          (initial-deal deck dealer-hand player-hand))
+          (initial-deal game))
       (prompt "Nice job! Hit enter to continue."))))
 
 (defn start []
@@ -209,8 +214,8 @@
         (if (= move "exit")
           (println "Goodbye :(")
           (do (case move
-                    "hit"  (play-hit deck player-hand)
+                    "hit"  (do (play-hit deck player-hand)
+                               (resolve-turn game))
                     "stay" (println "Dealer does his thing!")
                     (println "Sorry, didn't understand that one."))
-              (failure-test game)
               (recur)))))))

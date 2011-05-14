@@ -1,4 +1,4 @@
-(ns blackjack.poker)
+(ns backtype.blackjack.poker)
 ;; We need a function that can evaluate a hand, based on the various
 ;; types of hands! This is for five-card-draw, though. We're not
 ;; playing poker, we're just playing blackjack.
