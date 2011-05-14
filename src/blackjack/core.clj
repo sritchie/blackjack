@@ -16,16 +16,11 @@
 (def suits
   #{:hearts :spades :clubs :diamonds})
 
-(def ranks {:ace 1
-            :two 2
-            :three 3
-            :four 4
-            :five 5
-            :six 6
-            :seven 7
-            :eight 8
-            :nine 9
-            :ten 10 :jack 10 :queen 10 :king 10})
+(def ranks
+  (merge (zipmap [:ace :two :three :four :five
+                  :six :seven :eight :nine :ten]
+                 (map inc (range)))
+         {:jack 10 :queen 10 :king 10}))
 
 ;; `deck-gen` generates every card in the deck, representing a card as
 ;; a map with `:suit`, `:rank` and `:showing?`, to let us know if it's
@@ -57,7 +52,20 @@
 
 (defn new-hand
   "Generates a new, empty hand."
-  [] [])
+  [] (ref []))
+
+(defn new-discard
+  "Generates a new, empty hand."
+  [] (ref []))
+
+(defn new-game
+  "Initializes a new game of Blackjack."
+  [chips decks]
+  {:deck (ref (new-deck decks))
+   :discard (ref [])
+   :chips (atom chips)
+   :player-hand (new-hand)
+   :dealer-hand (new-hand)})
 
 ;; ## Game Play Mechanics
 
@@ -91,72 +99,47 @@
            (add-cards hand (set-show (take count @deck))))))))
 
 ;; TODO: This needs some work, as a hit isn't this simple, of course.
-
 (defn play-hit
-  [deck dealer-hand player-hand]
-  (deal-cards deck player-hand 1)
-  (deal-cards deck dealer-hand 1))
+  [deck hand]
+  (deal-cards deck hand 1))
 
-(defn dump-hand
+(defn dump-hands
   "Dumps the contents of the hand into the given discard pile, and
   sets the hand back to its fresh, empty state."
-  [discard hand]
-  (dosync (alter discard into @hand)
-          (ref-set hand (new-hand))))
+  [discard & hands]
+  (dosync 
+   (doseq [hand hands]
+     (alter discard into @hand)
+     (ref-set hand @(new-hand)))))
 
 ;; Based on this, the way a game would play would be... initialize the
 ;; decks and the hands, and then on each turn, based on the player
 ;; input or the game logic, decide whether to hit or stay. If we hit,
 ;; we need to `deal-card` into the supplied hand, the calculate scores. 
 
-;; ### Hand Ranking
+;; ### Hand Scoring
 
-(defn rank-hand
-  "Returns the two possible ranks of any given deal. An ace can never
+(defn score-hand
+  "Returns the two possible scores of any given deal. An ace can never
   count as 11 more than once, as this would cause an instant bust --
   we accept an optional argument that returns the highest possible
   value of rank, based on the presence of an ace."
-  [card-seq & {:keys [highest?]}]
-  (let [rank (reduce (fn [acc card]
-                       (+ acc (card ranks)))
-                     0
-                     (for [card card-seq]
-                       (:rank card)))]
-    (if (and highest? (some #{:ace} (map :rank card-seq)))
-      (+ 10 rank)
-      rank)))
-
-(defn rank-initial-deal
-  "Shows the rank of an initial deal."
-  [deck]
-  (rank-hand (map #(assoc % :showing? true)
-                  (take 2 deck))))
-
-
-;; ### Meaningless Testing
-
-(defn percent-chance
-  "Show the percent chance of getting the given score over `n` number
-  of trials."
-  [score n]
-  (let [hand-seq (filter #(= score %)
-                         (flatten
-                          (for [_ (range n)]
-                            (->> (new-deck)
-                                 (partition 2)
-                                 (map (comp second rank-hand))))))
-        cts (count hand-seq)]
-    (/ cts (* n 26.))))
-
+  [hand & {:keys [highest?]}]
+  (let [rank-seq (map :rank @hand)
+        score (reduce (fn [acc card]
+                        (+ acc (card ranks)))
+                      0
+                      rank-seq)]
+    (if (some #{:ace} rank-seq)
+      [score (+ 10 score)]
+      [score])))
 
 ;; ## Text Representations
-;;
-;; We need a way to show what a hand looks like!
 
 (defn print-hand
   "Prints out a text representation of the supplied hand."
   [hand show-hidden?]
-  (doseq [card hand :let [{:keys [suit rank showing?]} card]]
+  (doseq [card @hand :let [{:keys [suit rank showing?]} card]]
     (println (if (and (not showing?) (not show-hidden?))
                "Face down card!"
                (format "%s of %s (face %s)"
@@ -168,8 +151,8 @@
   [dealer-hand player-hand]
   (doseq [[hand title show?] [[dealer-hand "the dealer's" false]
                               [player-hand "your" true]]]
-    (println "\n" (format "Here's %s hand (worth %d points):"
-                          title (rank-hand hand)))
+    (println "\n" (format "Here's %s hand (worth %s points):"
+                          title (score-hand hand)))
     (print-hand hand show?))
   (println))
 
@@ -185,37 +168,49 @@
 (defn get-move []
   (prompt "What is your move? Your choices are hit, stay, or exit."))
 
+(defn busted?
+  [hand]
+  (some #(> % 21)
+        (score-hand hand :highest? true)))
+
+;; TODO: Check the atom thing, for the chips.
+;;
+;; Interesting -- so, if the player, hits, you recur and do all of
+;; this over again. If the user stays, then the computer goes into
+;; playing mode and does its thing.
+
+(defn initial-deal
+  [game]
+  (let [{:keys [deck dealer-hand player-hand]} game]
+    (do (deal-cards deck player-hand 2 :show? true)
+        (deal-cards deck dealer-hand 1 :show? true)
+        (deal-cards deck dealer-hand 1 :show? false))))
+
 (defn failure-test
   "Takes in any number of hands, and decides if one of these hands has
   caused a bust."
-  [& hands]
-  (if (->> hands
-           (map (comp #(rank-hand % :highest? true)
-                      deref))
-           (some #(>= % 21)))
-    (println "You've busted!!")
-    (println "still playing :)")))
-
-
-;; TODO: Check the atom thing, for the chips.
+  [game]
+  (let [{:keys [deck discard dealer-hand player-hand]} game]
+    (print-hands dealer-hand player-hand)
+    (if (busted? player-hand)
+      (do (prompt "Sorry, you busted. Please hit enter to proceed.")
+          (dump-hands discard dealer-hand player-hand)
+          (initial-deal deck dealer-hand player-hand))
+      (prompt "Nice job! Hit enter to continue."))))
 
 (defn start []
   (let [player-name (get-username)
-        deck (ref (new-deck *total-decks*))
-        discard (ref [])
-        chips (atom 0)
-        player-hand (ref (new-hand))
-        dealer-hand (ref (new-hand))]
-    (doseq [hand [player-hand dealer-hand]]
-      (deal-cards deck hand 2 :show? true))
+        game (new-game 500 *total-decks*)
+        {:keys [deck dealer-hand player-hand]} game]
+    (initial-deal game)
     (loop []
-      (print-hands @dealer-hand @player-hand)
+      (print-hands dealer-hand player-hand)
       (let [move (get-move)]
         (if (= move "exit")
           (println "Goodbye :(")
           (do (case move
-                    "hit"  (play-hit deck dealer-hand player-hand)
-                    "stay" (println "Nice move!")
+                    "hit"  (play-hit deck player-hand)
+                    "stay" (println "Dealer does his thing!")
                     (println "Sorry, didn't understand that one."))
-              (failure-test dealer-hand player-hand)
+              (failure-test game)
               (recur)))))))
