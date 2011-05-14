@@ -197,10 +197,13 @@
     (println "still playing :)")))
 
 
+;; TODO: Check the atom thing, for the chips.
+
 (defn start []
   (let [player-name (get-username)
         deck (ref (new-deck *total-decks*))
         discard (ref [])
+        chips (atom 0)
         player-hand (ref (new-hand))
         dealer-hand (ref (new-hand))]
     (doseq [hand [player-hand dealer-hand]]
