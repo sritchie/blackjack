@@ -21,7 +21,7 @@ When the user hits:
 
 ### Staying ###
 
-* If I stay, here's the dealer's case:
+If I stay, here's the dealer's case:
 
     (defn check-winners
           [dealer-hand player-hand]
