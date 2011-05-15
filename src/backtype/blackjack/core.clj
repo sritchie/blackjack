@@ -166,19 +166,19 @@
   [hand]
   (every? #(>= % 17) (score-hand hand)))
 
-(defn blackjack?
+(defn twenty-one?
   "Determines whether or not the given hand is a blackjack."
   [hand]
-  (and (= 2 (count @hand))
-       (some #{21} (score-hand hand))))
+  (some #{21} (score-hand hand)))
 
 (defn report-outcome
   [reason dealer-hand player-hand]
-  (cond (or (busted? dealer-hand)
-            (push? dealer-hand player-hand)) (println "Push!")
-            (= :blackjack reason) (println "Blackjack!")
-            (beats? player-hand dealer-hand) (println "Player wins.")
-            :else (println "Dealer wins.")))
+  (cond (busted? dealer-hand) (println "Player wins.")
+        (push? dealer-hand player-hand) (println "Push!")
+        (beats? player-hand dealer-hand) (if (= :blackjack reason) 
+                                           (println "Blackjack!")
+                                           (println "Player wins."))
+        :else (println "Dealer wins.")))
 
 ;; ## Text Representations
 
@@ -205,16 +205,16 @@
   "TODO: Clean up the internal ref business."
   [dealer-hand player-hand]
   (-> "clear" sh :out println)
-  (println (str "Here's the dealer's hand "
-                (if-let [s (score-str (ref (filter :showing? @dealer-hand)))]
-                  (format "(with %s points showing):" s)
-                  "(a bust!)")))
-  (print-hand dealer-hand)
-  (println (str "Here's your hand "
-                (if-let [s (score-str player-hand)]
-                  (format "(worth %s points):" s)
-                  "(a bust!)")))
-  (print-hand player-hand))
+  (let [ds (score-str (ref (filter :showing? @dealer-hand)))
+        ps (score-str player-hand)]
+    (println (str "Dealer's hand" (if ds
+                                    (format ", showing %s points:" ds)
+                                    " (a bust!)")))
+    (print-hand dealer-hand)
+    (println (str "Your hand" (if ps
+                                (format ", showing %s points:" ps)
+                                " (a bust!)")))
+    (print-hand player-hand)))
 
 ;; ## Game Loop Functions.
 
@@ -250,6 +250,7 @@
 (defn end-turn
   ([game & [reason]]
      (let [{:keys [dealer-hand player-hand]} game]
+       (set-showing? true dealer-hand)
        (print-interface dealer-hand player-hand)
        (report-outcome reason dealer-hand player-hand)
        (restart-hand game)
@@ -270,7 +271,7 @@
 (defn enact-player
   [game]
   (let [{:keys [deck dealer-hand player-hand]} game]
-    (if (blackjack? player-hand)
+    (if (twenty-one? player-hand)
       (end-turn game :blackjack)
       (loop []
         (print-interface dealer-hand player-hand)
@@ -280,7 +281,7 @@
                 "stay" (enact-dealer game)
                 "hit" (do (play-hit deck player-hand)
                           (cond (busted? player-hand) (end-turn game)
-                                (blackjack? player-hand) (enact-dealer game)
+                                (twenty-one? player-hand) (enact-dealer game)
                                 :else (recur)))
                 (prompt "Hmm, sorry, I didn't get that. Hit enter to continue.")))))))
 
