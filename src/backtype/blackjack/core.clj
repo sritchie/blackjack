@@ -197,10 +197,14 @@
                        (name suit)))))
   (println))
 
-(defn print-hands
+(defn print-interface
+  "TODO: Clean up the internal ref business."
   [dealer-hand player-hand]
-  (println (sh "bash" :in "clear"))
-  (println "Here's the dealer's hand:")
+  (println (sh "clear"))
+  (println (str "Here's the dealer's hand "
+                (if-let [s (score-str (ref (filter :showing? @dealer-hand)))]
+                  (format "(with %s points showing):" s)
+                  "(a bust!)")))
   (print-hand dealer-hand)
   (println (str "Here's your hand "
                 (if-let [s (score-str player-hand)]
@@ -240,7 +244,7 @@
 (defn end-turn
   [game]
   (let [{:keys [dealer-hand player-hand]} game]
-    (print-hands dealer-hand player-hand)
+    (print-interface dealer-hand player-hand)
     (check-winners dealer-hand player-hand)
     (restart-hand game)
     (prompt "Please hit enter to play again.")))
@@ -250,8 +254,8 @@
   (let [{:keys [deck dealer-hand player-hand]} game]
     (set-showing? true dealer-hand)
     (loop []
-      (print-hands dealer-hand player-hand)
-      (prompt "Hit enter to let the dealer continue.")
+      (print-interface dealer-hand player-hand)
+      (Thread/sleep 600)
       (if (over-16? dealer-hand)
         (end-turn game)
         (do (play-hit deck dealer-hand)
@@ -261,7 +265,7 @@
   [game]
   (let [{:keys [deck dealer-hand player-hand]} game]
     (loop []
-      (print-hands dealer-hand player-hand)
+      (print-interface dealer-hand player-hand)
       (let [move (get-move)]
         (case move
               "hit" (do (play-hit deck player-hand)
