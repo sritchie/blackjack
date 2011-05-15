@@ -1,6 +1,6 @@
 (ns backtype.blackjack.core
   (:refer-clojure :exclude [shuffle])
-  (:use [clojure.contrib.shell-out :only (sh)]))
+  (:use [clojure.java.shell :only (sh)]))
 
 ;; ## Blackjack Data Structures
 ;;
@@ -82,6 +82,14 @@
 ;; after the turn we shuffle the discards back into the deck. This has
 ;; to reset our card counting, of course.
 
+(defn set-showing?
+  [bool hand]
+  (dosync
+   (ref-set hand
+            (->> @hand
+                 (map #(assoc % :showing? (boolean bool)))
+                 vec))))
+
 (defn deal-cards
   "Deals a card from the supplied deck into the supplied hand. If the
   deck is empty, the deck will be refreshed before dealing a card out
@@ -94,14 +102,6 @@
            (add-cards hand (set-show f)))
        (do (ref-set deck @(new-deck *total-decks*))
            (add-cards hand (set-show (take count @deck))))))))
-
-(defn set-showing?
-  [val hand]
-  (dosync
-   (ref-set hand
-            (->> @hand
-                 (map #(assoc % :showing? val))
-                 vec))))
 
 ;; TODO: This needs some work, as a hit isn't this simple, of course.
 
@@ -142,7 +142,10 @@
 
 (defn highest-scores
   [& hands]
-  (map (comp last score-hand) hands))
+  (map (comp last
+             (partial filter #(<= % 21))
+             score-hand)
+       hands))
 
 (defn busted?
   [hand]
@@ -172,9 +175,9 @@
 (defn report-outcome
   [reason dealer-hand player-hand]
   (cond (or (busted? dealer-hand)
-            (push? dealer-hand player-hand) (println "Push!")
+            (push? dealer-hand player-hand)) (println "Push!")
             (= :blackjack reason) (println "Blackjack!")
-            (beats? player-hand dealer-hand)) (println "Player wins.")
+            (beats? player-hand dealer-hand) (println "Player wins.")
             :else (println "Dealer wins.")))
 
 ;; ## Text Representations
@@ -201,7 +204,7 @@
 (defn print-interface
   "TODO: Clean up the internal ref business."
   [dealer-hand player-hand]
-  (println (sh "clear"))
+  (-> "clear" sh :out println)
   (println (str "Here's the dealer's hand "
                 (if-let [s (score-str (ref (filter :showing? @dealer-hand)))]
                   (format "(with %s points showing):" s)
@@ -219,7 +222,9 @@
   (println message)
   (read-line))
 
-(defn get-move []
+(defn get-move
+  "TODO: Filter the <= bullshit out into a function that takes a binary predicate and the second argument to that predicate."
+  []
   (prompt "What is your move? Your choices are hit, stay, or exit."))
 
 ;; TODO: Check the atom thing, for the chips.
@@ -271,12 +276,12 @@
         (print-interface dealer-hand player-hand)
         (let [move (get-move)]
           (case move
+                "exit" :quit
+                "stay" (enact-dealer game)
                 "hit" (do (play-hit deck player-hand)
                           (cond (busted? player-hand) (end-turn game)
                                 (blackjack? player-hand) (enact-dealer game)
                                 :else (recur)))
-                "stay" (enact-dealer game)
-                "exit" :quit
                 (prompt "Hmm, sorry, I didn't get that. Hit enter to continue.")))))))
 
 (defn start []
