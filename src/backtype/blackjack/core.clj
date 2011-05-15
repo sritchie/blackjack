@@ -82,26 +82,24 @@
 ;; after the turn we shuffle the discards back into the deck. This has
 ;; to reset our card counting, of course.
 
-(defn set-showing?
+(defn set-showing
   [bool hand]
   (dosync
-   (ref-set hand
-            (->> @hand
-                 (map #(assoc % :showing? (boolean bool)))
-                 vec))))
+   (alter hand
+          (partial map #(assoc % :showing? (boolean bool))))))
 
 (defn deal-cards
   "Deals a card from the supplied deck into the supplied hand. If the
   deck is empty, the deck will be refreshed before dealing a card out
   to the players."
   [deck hand count & {:keys [show?]}]
-  (let [set-show (partial map #(assoc % :showing? (boolean show?)))]
+  (let [set-show (partial set-showing show?)]
     (dosync
      (if-let [f (take count @deck)]
-       (do (ref-set deck (vec (drop count @deck)))
-           (add-cards hand (set-show f)))
+       (do (ref-set deck (drop count @deck))
+           (add-cards hand (set-show (ref f))))
        (do (ref-set deck @(new-deck *total-decks*))
-           (add-cards hand (set-show (take count @deck))))))))
+           (add-cards hand (set-show (ref (take count @deck)))))))))
 
 ;; TODO: This needs some work, as a hit isn't this simple, of course.
 
@@ -250,7 +248,7 @@
 (defn end-turn
   ([game & [reason]]
      (let [{:keys [dealer-hand player-hand]} game]
-       (set-showing? true dealer-hand)
+       (set-showing true dealer-hand)
        (print-interface dealer-hand player-hand)
        (report-outcome reason dealer-hand player-hand)
        (restart-hand game)
@@ -259,7 +257,7 @@
 (defn enact-dealer
   [game]
   (let [{:keys [deck dealer-hand player-hand]} game]
-    (set-showing? true dealer-hand)
+    (set-showing true dealer-hand)
     (loop []
       (print-interface dealer-hand player-hand)
       (Thread/sleep 600)
