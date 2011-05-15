@@ -169,7 +169,7 @@
   (and (= 2 (count @hand))
        (some #{21} (score-hand hand))))
 
-(defn check-winners
+(defn report-outcome
   [dealer-hand player-hand]
   (cond (or (busted? dealer-hand)
             (beats? player-hand dealer-hand)) (println "Player wins.")
@@ -245,7 +245,7 @@
   [game]
   (let [{:keys [dealer-hand player-hand]} game]
     (print-interface dealer-hand player-hand)
-    (check-winners dealer-hand player-hand)
+    (report-outcome dealer-hand player-hand)
     (restart-hand game)
     (prompt "Please hit enter to play again.")))
 
