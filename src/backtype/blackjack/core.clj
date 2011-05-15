@@ -170,10 +170,11 @@
        (some #{21} (score-hand hand))))
 
 (defn report-outcome
-  [dealer-hand player-hand]
+  [reason dealer-hand player-hand]
   (cond (or (busted? dealer-hand)
-            (beats? player-hand dealer-hand)) (println "Player wins.")
             (push? dealer-hand player-hand) (println "Push!")
+            (= :blackjack reason) (println "Blackjack!")
+            (beats? player-hand dealer-hand)) (println "Player wins.")
             :else (println "Dealer wins.")))
 
 ;; ## Text Representations
@@ -242,12 +243,12 @@
     (initial-deal game)))
 
 (defn end-turn
-  [game]
-  (let [{:keys [dealer-hand player-hand]} game]
-    (print-interface dealer-hand player-hand)
-    (report-outcome dealer-hand player-hand)
-    (restart-hand game)
-    (prompt "Please hit enter to play again.")))
+  ([game & [reason]]
+     (let [{:keys [dealer-hand player-hand]} game]
+       (print-interface dealer-hand player-hand)
+       (report-outcome reason dealer-hand player-hand)
+       (restart-hand game)
+       (prompt "Please hit enter to play again."))))
 
 (defn enact-dealer
   [game]
@@ -264,17 +265,19 @@
 (defn enact-player
   [game]
   (let [{:keys [deck dealer-hand player-hand]} game]
-    (loop []
-      (print-interface dealer-hand player-hand)
-      (let [move (get-move)]
-        (case move
-              "hit" (do (play-hit deck player-hand)
-                        (cond (busted? player-hand) (end-turn game)
-                              (blackjack? player-hand) (enact-dealer game)
-                              :else (recur)))
-              "stay" (enact-dealer game)
-              "exit" :quit
-              (prompt "Hmm, sorry, I didn't get that. Hit enter to continue."))))))
+    (if (blackjack? player-hand)
+      (end-turn game :blackjack)
+      (loop []
+        (print-interface dealer-hand player-hand)
+        (let [move (get-move)]
+          (case move
+                "hit" (do (play-hit deck player-hand)
+                          (cond (busted? player-hand) (end-turn game)
+                                (blackjack? player-hand) (enact-dealer game)
+                                :else (recur)))
+                "stay" (enact-dealer game)
+                "exit" :quit
+                (prompt "Hmm, sorry, I didn't get that. Hit enter to continue.")))))))
 
 (defn start []
   (let [game (new-game 500 *total-decks*)]
