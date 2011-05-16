@@ -32,13 +32,13 @@
        (apply shuffle)))
 
 (def empty-hand [])
-(def new-discard [])
+(def empty-discard [])
 
 (defn new-game
   "Initializes a new game of Blackjack."
   [chips decks]
   {:deck (new-deck decks)
-   :discard new-discard
+   :discard empty-discard
    :player empty-hand
    :dealer empty-hand
    :chips chips
@@ -79,11 +79,17 @@
   "Dumps the contents of the hand into the given discard pile, and
   sets the hand back to its fresh, empty state."
   [game]
-  (assoc game
-    :discard (reduce into (map game [:discard :dealer :player]))
-    :dealer empty-hand
-    :player empty-hand
-    :turns 0))
+  (let [deck (:deck game)
+        discard (reduce into (map game [:discard :dealer :player]))
+        [deck discard] (if (< (count deck) 52)
+                         [(shuffle deck discard) empty-discard]
+                         [deck discard])]
+    (assoc game
+      :deck deck
+      :discard discard
+      :dealer empty-hand
+      :player empty-hand
+      :turns 0)))
 
 ;; ### Hand Scoring
 
@@ -274,6 +280,7 @@
       (assoc :turns (-> game :turns inc))))
 
 (declare dealer-turn)
+
 (defn double-down
   [game]
   (-> game
@@ -316,12 +323,15 @@
               (if first-turn?
                 (case move
                       "double down" (double-down game)
-                      "surrender" (surrender game))
+                      "surrender" (surrender game)
+                      (do (try-again) (recur game)))
                 (do (try-again) (recur game))))))))
 
 (defn -main
+  "TODO: We limit the number of decks to four."
   ([] (-main 6))
   ([decks]
+     {:pre [(>= decks 4)]}
      (loop [game (new-game 500 decks)]
        (if (= :quit game)
          "Goodbye!"
