@@ -7,7 +7,12 @@ TODO:
 * splitting
 
 * Mention early surrender allowed.
-
+* CONSIDER what happens if someone doesn't have enough money to
+  double!
+* Force a quit at the end.
+* Use keywords instead of strings in the case statement, since we're
+* getting the move.
+* Separate user input from the functions that work on it
 http://www.pagat.com/banking/blackjack.html
 
 # BLACKJACK #
@@ -47,14 +52,3 @@ If I stay, here's the dealer's case:
                   (check-winners dealer-hand player-hand)
                   (do (do-hit dealer-hand)
                       (recur)))))
-
-
-;; TODO: deal with the fact that the deck might become empty. We can't
-;; just add a new deck! But once the six decks are exhausted, we're
-;; going to want to replace the deck. Do we want to do that in this
-;; function? Not really sure about that.
-;;
-;; TODO: Perhaps we should check the count of the decks -- if we play
-;; a hand that gets down below three decks, or maybe below one deck,
-;; after the turn we shuffle the discards back into the deck. This has
-;; to reset our card counting, of course.
