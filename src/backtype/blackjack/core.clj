@@ -73,9 +73,25 @@
 
 (defn dump-hands
   "Dumps hands into discard, and sets the hands back to their fresh,
-  empty state."  [game]
+  empty state."
+  [game]
   (let [deck (:deck game)
         discard (reduce into (map game [:discard :dealer :player]))
+        [deck discard] (if (< (count deck) 52)
+                         [(shuffle deck discard) empty-discard]
+                         [deck discard])]
+    (assoc game
+      :deck deck
+      :discard discard
+      :dealer empty-hand
+      :player empty-hand
+      :turns 0)))
+
+(defn dump-hands
+  "Dumps hands into discard, and sets the hands back to their fresh,
+  empty state."
+  [{:keys [deck discard dealer player] :as game}]
+  (let [discard (reduce into discard [dealer player])
         [deck discard] (if (< (count deck) 52)
                          [(shuffle deck discard) empty-discard]
                          [deck discard])]
@@ -304,7 +320,6 @@
         ret-game (-> game
                      (show-hand :dealer)
                      (resolve-bet result)
-                     print-interface
                      (print-outcome result)
                      dump-hands)]
     (prompt "Please hit enter to proceed.")
