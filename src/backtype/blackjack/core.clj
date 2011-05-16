@@ -4,10 +4,6 @@
   (:gen-class))
 
 ;; ## Blackjack Data Structures
-;;
-;; Not sure if this is the best way to proceed, but we'll use a global
-;; variable here to represent the total number of decks used in the
-;; game. This can be rebound, if necessary to the game.
 
 (def *total-decks* 6)
 
@@ -28,7 +24,7 @@
 ;; Interesting to note that we can't actually use a set to represent a
 ;; hand, if we're going to have multiple decks.
 
-(def deck-gen
+(def deck-seq
   (for [suit suits
         rank (keys ranks)]
     {:suit suit :rank rank :showing? false}))
@@ -43,7 +39,7 @@
    shuffled together."
   [n]
   {:pre [(pos? n)]}
-  (->> deck-gen
+  (->> deck-seq
        (repeat n)
        (apply shuffle)))
 
@@ -91,12 +87,6 @@
     (assoc game
       hand-kwd (into hand cards)
       :deck new-deck)))
-
-(defn play-hit
-  [game hand-kwd]
-  (-> game
-      (deal-cards 1 hand-kwd :show? true)
-      (assoc :turns (-> game :turns inc))))
 
 (defn dump-hands
   "Dumps the contents of the hand into the given discard pile, and
@@ -151,10 +141,11 @@
     (and (not (busted? hand1))
          (> s1 s2))))
 
-(defn outcome
-  [game]
+(defn get-outcome
+  [game surrender?]
   (let [{:keys [dealer player turns]} game]
-    (cond (busted? dealer) :win
+    (cond surrender? :surrender
+          (busted? dealer) :win
           (push? dealer player) :push
           (beats? player dealer) (if (and (zero? turns)
                                           (twenty-one? player))
@@ -165,6 +156,7 @@
 (defn report-outcome
   [game outcome]
   (case outcome
+        :surrender (println "Player surrendered.")
         :blackjack (println "Blackjack!")
         :push (println "Push!")
         :win (println "Player wins.")
@@ -192,30 +184,49 @@
                        (name suit)))))
   (println))
 
-(defn print-interface
-  "TODO: Clean up the internal ref business."
+(defn print-hands
   [game]
-  (-> "clear" sh :out println)
-  (let [{:keys [chips current-bet dealer player]} game
-        ds (score-str (filter :showing? dealer))
-        ps (score-str player)]
-    (println (str "Dealer's hand" (if ds
-                                    (format ", showing %s points:" ds)
-                                    " (a bust!)")))
-    (print-hand dealer)
-    (println (str "Your hand" (if ps
-                                (format ", showing %s points:" ps)
-                                " (a bust!)")))
-    (print-hand player)
+  (let [{:keys [dealer player]} game]
+    (when-not (empty? dealer)
+      (doseq [[holder title] [[dealer "Dealer's"]
+                              [player "Your"]]
+              :let [points (->> holder
+                                (filter :showing?)
+                                score-str)]]
+        (println (str title " hand"
+                      (if points
+                        (format ", showing %s points:" points)
+                        " (a bust!)")))
+        (print-hand holder)))
+    game))
+
+(defn print-betline
+  [game]
+  (let [{:keys [chips current-bet]} game]
     (println (format "You have %d chips left. Your current bet is %d.\n"
                      chips current-bet))
     game))
+
+(defn print-interface
+  "TODO: Clean up this internal business."
+  [game]
+  (-> "clear" sh :out println)
+  (-> game print-hands print-betline))
 
 ;; ## Game Loop Functions.
 
 (defn prompt [message]
   (println message)
   (read-line))
+
+(defn try-again []
+  (println "Hmm, sorry, I didn't get that. Let's try again.")
+  (Thread/sleep 1000))
+
+(defn get-move
+  [first-turn?]
+  (prompt (format "What is your move? Your choices are hit, stay, %sand exit."
+                  (if first-turn? "double down, surrender, " ""))))
 
 ;; ### Betting
 
@@ -238,6 +249,7 @@
   [game result double?]
   (let [{:keys [chips current-bet]} game
         pay (-> (case result
+                      :surrender (/ 1 2)
                       :blackjack (/ 5 2)
                       :win (if double? 3 2)
                       (:lose :push) 0)
@@ -258,11 +270,11 @@
   (-> game print-interface make-bet initial-deal))
 
 (defn end-turn
-  [game & {:keys [double?]}]
-  (let [result (outcome game)
+  [game & {:keys [surrender? double?]}]
+  (let [result (get-outcome game surrender?)
         ret-game (-> game
                      (show-hand :dealer)
-                     (resolve-bet result double?) ;; FIX!!!
+                     (resolve-bet result double?)
                      print-interface
                      (report-outcome result)
                      dump-hands)]
@@ -282,27 +294,21 @@
         (end-turn game :double? double?)
         (recur (play-hit game :dealer))))))
 
+(defn play-hit
+  [game hand-kwd]
+  (-> game
+      (deal-cards 1 hand-kwd :show? true)
+      (assoc :turns (-> game :turns inc))))
+
 (defn double-down
   [game]
   (-> game
       (play-hit :player)
       (dealer-turn :double? true)))
 
-;; TODO: FINISH
 (defn surrender
   [game]
-  (-> game
-      (play-hit :player)
-      (dealer-turn :double? true)))
-
-(defn try-again []
-  (println "Hmm, sorry, I didn't get that. Let's try again.")
-  (Thread/sleep 1000))
-
-(defn get-move
-  [first-turn?]
-  (prompt (format "What is your move? Your choices are hit, stay, %sand exit."
-                  (if first-turn? "double down, " ""))))
+  (end-turn game :surrender? true))
 
 (defn player-turn
   [game]
@@ -321,7 +327,7 @@
                               (twenty-one? player))
                         (dealer-turn game)
                         (recur game)))
-              (if (first-turn?)
+              (if first-turn?
                 (case move
                       "double down" (double-down game)
                       "surrender" (surrender game))

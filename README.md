@@ -3,7 +3,9 @@ be using text.
 
 TODO:
 
-* gotta implement soft vs hard push.
+* gotta implement soft vs hard push. DONE!
+
+* Early surrender allowed.
 
 http://www.pagat.com/banking/blackjack.html
 
