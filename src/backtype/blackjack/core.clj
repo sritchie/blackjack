@@ -37,6 +37,7 @@
 (defn new-game
   "Initializes a new game of Blackjack."
   [chips bet-limit decks]
+  {:pre [(>= decks 4) (<= decks 8)]}
   {:deck (new-deck decks)
    :discard empty-discard
    :player empty-hand
@@ -135,6 +136,10 @@
     (and (not (busted? hand1))
          (> s1 s2))))
 
+(defn broke?
+  [{:keys [chips current-bet]}]
+  (zero? (+ chips current-bet)))
+
 (defn get-outcome
   [game surrender?]
   (let [{:keys [dealer player turns]} game]
@@ -159,6 +164,14 @@
         :lose (println "Dealer wins."))
   game)
 
+(defn score-str
+  "Returns a string representation of the score of the game."
+  [hand]
+  (let [[score-a score-b] (filter #(<= % 21)
+                                  (score-hand hand))]
+    (when score-a
+      (apply str score-a (when score-b ["/" score-b])))))
+
 (defn print-hand
   "Prints out a text representation of the supplied hand."
   [hand]
@@ -169,14 +182,6 @@
                        (name rank)
                        (name suit)))))
   (println))
-
-(defn score-str
-  "Returns a string representation of the score of the game."
-  [hand]
-  (let [[score-a score-b] (filter #(<= % 21)
-                                  (score-hand hand))]
-    (when score-a
-      (apply str score-a (when score-b ["/" score-b])))))
 
 (defn print-hands
   [game]
@@ -213,43 +218,63 @@
   (read-line))
 
 (defn get-move
-  [game]
-  (let [{:keys [turns chips current-bet bet-limit]} game
-        first-turn? (zero? turns)
-        funding? (and (>= chips current-bet)
-                      (<= (* 2 current-bet) bet-limit))
-        options (into ["hit" "stay"]
-                      (when first-turn?
-                        (if funding?
-                          ["double down" "surrender"]
-                          ["surrender"])))
-        opt-str (format "What is your move? Your choices are %s, and exit."
-                        (->> options
-                             (interpose ", ")
-                             (apply str)))]
-    (if-let [move (some #{(prompt opt-str)} options)]
-      move
+  [choices]
+  (let [opt (keyword
+             (prompt (format "What is your move? Your choices are %s, and %s."
+                             (->> (butlast choices)
+                                  (map name)
+                                  (interpose ", ")
+                                  (apply str))
+                             (name (last choices)))))]
+    (if-let [choice (some #{opt} choices)]
+      choice
       (do (println "Hmm, sorry, I didn't get that. Let's try again.")
-          (recur game)))))
+          (recur choices)))))
 
-;; ### Betting
-
-(defn make-bet
-  [game]
-  (let [{:keys [chips bet-limit]} game
+(defn get-bet
+  [chips bet-limit]
+  (let [limit (if (< chips bet-limit) chips bet-limit)
         bet (try (Integer.
                   (prompt (format "How many chips (up to %d) would you like to bet?"
-                                  bet-limit)))
+                                  limit)))
                  (catch Exception e :invalid))]
     (if-let [statement (cond
                         (= :invalid bet) "Sorry, that input seems to be invalid."
                         (<= bet 0) "Only positive bets, please."
-                        (> bet bet-limit) (str bet-limit " or lower, please.")
+                        (> bet bet-limit) (str bet-limit " or fewer, please.")
                         (neg? (- chips bet)) "Not enough funding for that!")]
-      (do (println statement) (recur game))
-      (assoc game
-        :chips (- chips bet)
-        :current-bet bet))))
+      (do (println statement)
+          (recur chips bet-limit))
+      bet)))
+
+(defn special-options [game]
+  (let [{:keys [turns chips current-bet bet-limit player]} game
+        first-turn? (zero? turns)
+        funding? (and (>= chips current-bet)
+                      (<= (* 2 current-bet) bet-limit))]
+    (when first-turn?
+      (if funding?
+        [:surrender :double-down]
+        [:surender]))))
+
+(defn move-choices
+  "These are all possible moves -- special moves "
+  [game]
+  (reduce into [:hit :stay]
+          [(special-options game)
+           [:exit]]))
+
+;; ### Betting
+
+(defn make-bet
+  [game bet]
+  {:post [(>= (:chips %) 0)
+          (= bet (:current-bet %))
+          (<= bet (:bet-limit %))]}
+  (let [{:keys [chips bet-limit]} game]
+    (assoc game
+      :chips (- chips bet)
+      :current-bet bet)))
 
 (defn resolve-bet
   [game result]
@@ -274,7 +299,11 @@
 
 (defn start-turn
   [game]
-  (-> game print-interface make-bet initial-deal))
+  (let [{:keys [chips bet-limit]} game]
+    (-> game
+        print-interface
+        (make-bet (get-bet chips bet-limit))
+        initial-deal)))
 
 (defn end-turn
   [game & {:keys [surrender?]}]
@@ -285,7 +314,7 @@
                      print-interface
                      (print-outcome result)
                      dump-hands)]
-    (prompt "Please hit enter to play again.")
+    (prompt "Please hit enter to proceed.")
     ret-game))
 
 (defn play-hit
@@ -326,27 +355,25 @@
     (end-turn game)
     (loop [game game]
       (print-interface game)
-      (case (get-move game)
-            "exit" :quit
-            "stay" (dealer-turn game)
-            "double down" (double-down game)
-            "surrender" (surrender game)
-            "hit" (let [game (play-hit game :player)
-                        player (:player game)]
-                    (if (or (busted? player)
-                            (twenty-one? player))
-                      (dealer-turn game)
-                      (recur game)))
+      (case (-> game move-choices get-move)
+            :exit :quit
+            :stay (dealer-turn game)
+            :double-down (double-down game)
+            :surrender (surrender game)
+            :hit (let [game (play-hit game :player)
+                       player (:player game)]
+                   (if (or (busted? player)
+                           (twenty-one? player))
+                     (dealer-turn game)
+                     (recur game)))
             (recur game)))))
 
 (defn -main
-  "TODO: We limit the number of decks to four."
   ([] (-main 6 100))
   ([decks]
      (-main decks 100))
   ([decks bet-limit]
-     {:pre [(>= decks 4)]}
-     (loop [game (new-game 500 100 decks)]
-       (if (= :quit game)
-         "Goodbye!"
-         (recur (player-turn (start-turn game)))))))
+     (loop [game (new-game 500 bet-limit decks)]
+       (cond (= game :quit) (println "Goodbye!")
+             (broke? game)  (println "Sorry, you're out of chips!")
+             :else          (recur (-> game start-turn player-turn))))))
