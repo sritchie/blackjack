@@ -44,83 +44,63 @@
   {:pre [(pos? n)]}
   (->> deck-gen
        (repeat n)
-       (apply shuffle)
-       ref))
+       (apply shuffle)))
 
-(defn new-hand
-  "Generates a new, empty hand."
-  [] (ref []))
-
-(defn new-discard
-  "Generates a new, empty hand."
-  [] (ref []))
+(def empty-hand [])
+(def new-discard [])
 
 (defn new-game
   "Initializes a new game of Blackjack."
   [chips decks]
   {:deck (new-deck decks)
-   :discard (ref [])
-   :chips (atom chips)
+   :discard []
+   :chips chips
    :current-bet 0
-   :player-hand (new-hand)
-   :dealer-hand (new-hand)})
+   :player empty-hand
+   :dealer empty-hand})
 
 ;; ## Game Play Mechanics
 
-(defn add-cards
-  "Adds the given item to a hand collection. Must be wrapped in a
-  dosync transaction."
-  [hand card-seq]
-  (alter hand into card-seq))
+(defn set-card-showing
+  [bool card]
+  {:pre [(#{true false} bool)]}
+  (assoc card :showing? bool))
 
-;; TODO: deal with the fact that the deck might become empty. We can't
-;; just add a new deck! But once the six decks are exhausted, we're
-;; going to want to replace the deck. Do we want to do that in this
-;; function? Not really sure about that.
-;;
-;; TODO: Perhaps we should check the count of the decks -- if we play
-;; a hand that gets down below three decks, or maybe below one deck,
-;; after the turn we shuffle the discards back into the deck. This has
-;; to reset our card counting, of course.
+(defn set-hand-showing
+  [bool game hand-kwd]
+  (assoc game
+    hand-kwd (map (partial set-card-showing bool)
+                  (hand-kwd game))))
 
-(defn set-showing
-  [bool hand]
-  (dosync
-   (alter hand
-          (partial map #(assoc % :showing? (boolean bool))))))
+(def show-hand (partial set-hand-showing true))
+(def hide-hand (partial set-hand-showing false))
 
 (defn deal-cards
   "Deals a card from the supplied deck into the supplied hand. If the
   deck is empty, the deck will be refreshed before dealing a card out
   to the players."
-  [deck hand count & {:keys [show?]}]
-  (let [set-show (partial set-showing show?)]
-    (dosync
-     (if-let [f (take count @deck)]
-       (do (ref-set deck (drop count @deck))
-           (add-cards hand (set-show (ref f))))
-       (do (ref-set deck @(new-deck *total-decks*))
-           (add-cards hand (set-show (ref (take count @deck)))))))))
-
-;; TODO: This needs some work, as a hit isn't this simple, of course.
+  [game n hand-kwd & {:keys [show?]}]
+  {:pre [(-> game :deck count (>= n)), (hand-kwd game)]}
+  (let [[deck hand] (map game [:deck hand-kwd])
+        [cards new-deck] (split-at n deck)
+        cards (map #(assoc % :showing? (boolean show?))
+                   cards)]
+    (assoc game
+      hand-kwd (into hand cards)
+      :deck new-deck)))
 
 (defn play-hit
-  [deck hand]
-  (deal-cards deck hand 1 :show? true))
+  [game hand-kwd]
+  (deal-cards game 1 hand-kwd :show? true))
 
 (defn dump-hands
   "Dumps the contents of the hand into the given discard pile, and
   sets the hand back to its fresh, empty state."
-  [discard & hands]
-  (dosync 
-   (doseq [hand hands]
-     (alter discard into @hand)
-     (ref-set hand @(new-hand)))))
-
-;; Based on this, the way a game would play would be... initialize the
-;; decks and the hands, and then on each turn, based on the player
-;; input or the game logic, decide whether to hit or stay. If we hit,
-;; we need to `deal-card` into the supplied hand, the calculate scores. 
+  [game]
+  (assoc game
+    :discard (reduce into (map game [:discard :dealer :player]))
+    :dealer empty-hand
+    :player empty-hand))
 
 ;; ### Hand Scoring
 
@@ -130,7 +110,7 @@
   we accept an optional argument that returns the highest possible
   value of rank, based on the presence of an ace."
   [hand]
-  (let [rank-seq (map :rank @hand)
+  (let [rank-seq (map :rank hand)
         score (reduce (fn [acc card]
                         (+ acc (card ranks)))
                       0
@@ -170,15 +150,25 @@
   [hand]
   (some #{21} (score-hand hand)))
 
+
+(defn outcome
+  [game blackjack?]
+  (let [{:keys [dealer player]} game]
+    (cond (busted? dealer) :win
+          (push? dealer player) :push
+          (beats? player dealer) (if blackjack?
+                                   :blackjack
+                                   :win)
+          :else :lose)))
+
 (defn report-outcome
-  [game reason]
-  (let [{:keys [dealer-hand player-hand]} game]
-    (cond (busted? dealer-hand) (println "Player wins.")
-          (push? dealer-hand player-hand) (println "Push!")
-          (beats? player-hand dealer-hand) (if (= :blackjack reason) 
-                                             (println "Blackjack!")
-                                             (println "Player wins."))
-          :else (println "Dealer wins."))))
+  [game outcome]
+  (case outcome
+        :blackjack (println "Blackjack!")
+        :push (println "Push!")
+        :win (println "Player wins.")
+        :lose (println "Dealer wins."))
+  game)
 
 ;; ## Text Representations
 
@@ -193,7 +183,7 @@
 (defn print-hand
   "Prints out a text representation of the supplied hand."
   [hand]
-  (doseq [card @hand :let [{:keys [suit rank showing?]} card]]
+  (doseq [card hand :let [{:keys [suit rank showing?]} card]]
     (println (if-not showing?
                "Hidden card."
                (format "%s of %s"
@@ -205,18 +195,20 @@
   "TODO: Clean up the internal ref business."
   [game]
   (-> "clear" sh :out println)
-  (let [{:keys [chips dealer-hand player-hand]} game
-        ds (score-str (ref (filter :showing? @dealer-hand)))
-        ps (score-str player-hand)]
+  (let [{:keys [chips current-bet dealer player]} game
+        ds (score-str (filter :showing? dealer))
+        ps (score-str player)]
     (println (str "Dealer's hand" (if ds
                                     (format ", showing %s points:" ds)
                                     " (a bust!)")))
-    (print-hand dealer-hand)
+    (print-hand dealer)
     (println (str "Your hand" (if ps
                                 (format ", showing %s points:" ps)
                                 " (a bust!)")))
-    (print-hand player-hand)
-    (println "You have" @(:chips game) "total chips.\n")))
+    (print-hand player)
+    (println (format "You have %d chips left. Your current bet is %d.\n"
+                     chips current-bet))
+    game))
 
 ;; ## Game Loop Functions.
 
@@ -224,9 +216,29 @@
   (println message)
   (read-line))
 
-(defn get-bet
-  []
-  (prompt "How many chips would you like to bet?"))
+(defn make-bet
+  [game]
+  (let [chips (:chips game)
+        bet (try (Integer. (prompt "How many chips (up to 100) would you like to bet?"))
+                 (catch Exception e -1))]
+    (if (and (pos? bet) (<= bet 100))
+      (assoc game
+        :chips (- chips bet)
+        :current-bet bet)
+      (do (println "Sorry, that's not a valid bet.")
+          (recur game)))))
+
+(defn resolve-bet
+  [game result]
+  (let [{:keys [chips current-bet]} game
+        pay (-> (case result
+                      :blackjack (/ 3 2)
+                      :win 1
+                      (:lose :push) 0)
+                (* current-bet) Math/floor int)]
+    (assoc game
+      :chips (+ chips pay)
+      :current-bet 0)))
 
 (defn get-move
   "TODO: Filter the <= bullshit out into a function that takes a
@@ -234,78 +246,60 @@
   []
   (prompt "What is your move? Your choices are hit, stay, or exit."))
 
-;; TODO: Check the atom thing, for the chips.
-;;
-;; Interesting -- so, if the player, hits, you recur and do all of
-;; this over again. If the user stays, then the computer goes into
-;; playing mode and does its thing.
-
 (defn initial-deal
   [game]
-  (let [{:keys [deck dealer-hand player-hand]} game]
-    (do (deal-cards deck player-hand 2 :show? true)
-        (deal-cards deck dealer-hand 1 :show? true)
-        (deal-cards deck dealer-hand 1 :show? false))))
+  (-> game
+      (deal-cards 2 :player :show? true)
+      (deal-cards 1 :dealer :show? true)
+      (deal-cards 1 :dealer :show? false)))
 
-(defn restart-hand
-  "Dumps the hands into the discard, and gets everything going again."
+(defn start-turn
   [game]
-  (let [{:keys [discard dealer-hand player-hand]} game]
-    (dump-hands discard dealer-hand player-hand)
-    (initial-deal game)))
-
-(defn remove-chips [pool amount]
-  (dosync (swap! pool - amount)))
-
-(defn settle-chips [game reason]
-  (dosync
-   (if (= reason :blackjack)
-     ())))
+  (-> game print-interface make-bet initial-deal))
 
 (defn end-turn
-  ([game & [reason]]
-     (let [{:keys [dealer-hand player-hand]} game]
-       (set-showing true dealer-hand)
-       (settle-chips game reason)
-       (print-interface game)
-       (report-outcome game reason)
-       (restart-hand game)
-       (prompt "Please hit enter to play again."))))
+  [game & {:keys [blackjack?]}]
+  (let [result (outcome game blackjack?)
+        ret-game (-> game
+                     (show-hand :dealer)
+                     (resolve-bet result) ;; FIX!!!
+                     print-interface
+                     (report-outcome result)
+                     dump-hands)]
+    (prompt "Please hit enter to play again.")
+    ret-game))
 
-(defn enact-dealer
+(defn dealer-turn
   [game]
-  (let [{:keys [deck dealer-hand player-hand]} game]
-    (set-showing true dealer-hand)
-    (loop []
+  (loop [game (show-hand game :dealer)]
+    (let [dealer (:dealer game)]
       (print-interface game)
       (Thread/sleep 600)
-      (if (over-16? dealer-hand)
+      (if (over-16? dealer)
         (end-turn game)
-        (do (play-hit deck dealer-hand)
-            (recur))))))
+        (recur (play-hit game :dealer))))))
 
-(defn enact-player
+(defn player-turn
   [game]
-  (let [{:keys [deck dealer-hand player-hand]} game]
-    (if (twenty-one? player-hand)
-      (end-turn game :blackjack)
-      (loop []
-        (print-interface game)
-        (make-bet game)
-        (let [move (get-move)]
-          (case move
-                "exit" :quit
-                "stay" (enact-dealer game)
-                "hit" (do (play-hit deck player-hand)
-                          (cond (busted? player-hand) (end-turn game)
-                                (twenty-one? player-hand) (enact-dealer game)
-                                :else (recur)))
-                (prompt "Hmm, sorry, I didn't get that. Hit enter to continue.")))))))
+  (let [game (start-turn game)]
+    (if (twenty-one? (:player game))
+      (end-turn game :blackjack? true)
+      (loop [game game]
+        (print-interface game)    
+        (case (get-move)
+              "exit" :quit
+              "stay" (dealer-turn game)
+              "hit" (let [game (play-hit game :player)
+                          player (:player game)]
+                      (cond (busted? player) (end-turn game)
+                            (twenty-one? player) (dealer-turn game)
+                            :else (recur game)))
+              (do (println "Hmm, sorry, I didn't get that. Let's try again.")
+                  (Thread/sleep 1000)
+                  (recur game)))))))
 
 (defn start []
-  (let [game (new-game 500 *total-decks*)]
-    (initial-deal game)
-    (loop []
-      (if (= :quit (enact-player game))
-        "Goodbye!"
-        (recur)))))
+  (loop [game (new-game 500 *total-decks*)]
+    (if (= :quit game)
+      "Goodbye!"
+      (recur (player-turn game)))))
