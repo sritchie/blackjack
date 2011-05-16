@@ -221,13 +221,16 @@
   [game]
   (let [chips (:chips game)
         bet (try (Integer. (prompt "How many chips (up to 100) would you like to bet?"))
-                 (catch Exception e -1))]
-    (if (and (pos? bet) (<= bet 100))
+                 (catch Exception e :invalid))]
+    (if-let [statement (cond
+                        (= :invalid bet) "Sorry, that input seems to be invalid."
+                        (neg? bet) "Only positive bets, please."
+                        (> bet 100) "Under 100, please."
+                        (neg? (- chips bet)) "Not enough funding for that!")]
+      (do (println statement) (recur game))
       (assoc game
         :chips (- chips bet)
-        :current-bet bet)
-      (do (println "Sorry, that's not a valid bet.")
-          (recur game)))))
+        :current-bet bet))))
 
 (defn resolve-bet
   [game result double?]
