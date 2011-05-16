@@ -39,6 +39,7 @@
    :player empty-hand
    :dealer empty-hand
    :chips chips
+   :card-limit 52
    :bet-limit bet-limit
    :current-bet 0
    :turns 0})
@@ -74,25 +75,9 @@
 (defn dump-hands
   "Dumps hands into discard, and sets the hands back to their fresh,
   empty state."
-  [game]
-  (let [deck (:deck game)
-        discard (reduce into (map game [:discard :dealer :player]))
-        [deck discard] (if (< (count deck) 52)
-                         [(shuffle deck discard) empty-discard]
-                         [deck discard])]
-    (assoc game
-      :deck deck
-      :discard discard
-      :dealer empty-hand
-      :player empty-hand
-      :turns 0)))
-
-(defn dump-hands
-  "Dumps hands into discard, and sets the hands back to their fresh,
-  empty state."
-  [{:keys [deck discard dealer player] :as game}]
+  [{:keys [deck discard dealer player card-limit] :as game}]
   (let [discard (reduce into discard [dealer player])
-        [deck discard] (if (< (count deck) 52)
+        [deck discard] (if (< (count deck) card-limit)
                          [(shuffle deck discard) empty-discard]
                          [deck discard])]
     (assoc game
@@ -126,9 +111,10 @@
 
 (defn scale-bet
   [{:keys [current-bet chips] :as game} scale]
-  (assoc game
-    :current-bet (* 2 current-bet)
-    :chips (- chips current-bet)))
+  (let [new-bet (* scale current-bet)]
+    (assoc game
+      :current-bet new-bet
+      :chips (+ chips current-bet (- new-bet)))))
 
 (defn play-hit
   [game player]
@@ -192,6 +178,12 @@
 
 ;; ## Text Representations
 
+(defn score-str
+  "Returns a string representation of the score of the game."
+  [hand]
+  (let [[s1 s2] (filter #(<= % 21) (score-hand hand))]
+    (str s1 (when s2 "/") s2)))
+
 (defn print-outcome
   [game outcome]
   (case outcome
@@ -201,12 +193,6 @@
         :win (println "Player wins.")
         :lose (println "Dealer wins."))
   game)
-
-(defn score-str
-  "Returns a string representation of the score of the game."
-  [hand]
-  (let [[s1 s2] (filter #(<= % 21) (score-hand hand))]
-    (str s1 (when s2 "/") s2)))
 
 (defn print-hand
   "Prints out a text representation of the supplied hand."
