@@ -217,6 +217,8 @@
   (println message)
   (read-line))
 
+;; ### Betting
+
 (defn make-bet
   [game]
   (let [chips (:chips game)
@@ -286,39 +288,47 @@
       (play-hit :player)
       (dealer-turn :double? true)))
 
+;; TODO: FINISH
+(defn surrender
+  [game]
+  (-> game
+      (play-hit :player)
+      (dealer-turn :double? true)))
+
 (defn try-again []
   (println "Hmm, sorry, I didn't get that. Let's try again.")
   (Thread/sleep 1000))
 
 (defn get-move
-  [allow-double?]
+  [first-turn?]
   (prompt (format "What is your move? Your choices are hit, stay, %sand exit."
-                  (if allow-double? "double down, " ""))))
+                  (if first-turn? "double down, " ""))))
 
 (defn player-turn
   [game]
-  (let [game (start-turn game)]
-    (if (-> game :player twenty-one?)
-      (end-turn game)
-      (loop [game game]
-        (let [allow-double? (zero? (:turns game))]
-          (print-interface game)
-          (case (get-move allow-double?)
-                "exit" :quit
-                "stay" (dealer-turn game)
-                "hit" (let [game (play-hit game :player)
-                            player (:player game)]
-                        (if (or (busted? player)
-                                (twenty-one? player))
-                          (dealer-turn game)
-                          (recur game)))
-                "double down" (if allow-double?
-                                (double-down game)
-                                (do (try-again) (recur game)))
+  (if (-> game :player twenty-one?)
+    (end-turn game)
+    (loop [game game]
+      (print-interface game)
+      (let [first-turn? (zero? (:turns game))
+            move (get-move first-turn?)]
+        (case move
+              "exit" :quit
+              "stay" (dealer-turn game)
+              "hit" (let [game (play-hit game :player)
+                          player (:player game)]
+                      (if (or (busted? player)
+                              (twenty-one? player))
+                        (dealer-turn game)
+                        (recur game)))
+              (if (first-turn?)
+                (case move
+                      "double down" (double-down game)
+                      "surrender" (surrender game))
                 (do (try-again) (recur game))))))))
 
 (defn -main [& {:keys [soft-17?]}]
   (loop [game (new-game 500 *total-decks* soft-17?)]
     (if (= :quit game)
       "Goodbye!"
-      (recur (player-turn game)))))
+      (recur (player-turn (start-turn game))))))
