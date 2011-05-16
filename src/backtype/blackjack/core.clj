@@ -51,8 +51,7 @@
 
 (defn set-cards-showing
   [cards bool]
-  {:pre [(contains? #{true false} bool)]}
-  (map #(assoc % :showing? bool)
+  (map #(assoc % :showing? (boolean bool))
        cards))
 
 (defn set-hand-showing
@@ -65,22 +64,21 @@
 (def hide-hand (partial set-hand-showing false))
 
 (defn deal-cards
-  "Deals a card from the supplied deck into the supplied hand. If the
-  deck is empty, the deck will be refreshed before dealing a card out
-  to the players."
+  "Deals a card from the supplied deck to the player referenced by
+  `hand-kwd`. If the deck is empty, the deck will be refreshed before
+  dealing a card out to the players."
   [game n hand-kwd & {:keys [show?]}]
   {:pre [(-> game :deck count (>= n)), (hand-kwd game)]}
   (let [[deck hand] (map game [:deck hand-kwd])
         [cards new-deck] (split-at n deck)
-        cards (set-cards-showing cards (boolean show?))]
+        cards (set-cards-showing cards show?)]
     (assoc game
       hand-kwd (into hand cards)
       :deck new-deck)))
 
 (defn dump-hands
-  "Dumps the contents of the hand into the given discard pile, and
-  sets the hand back to its fresh, empty state."
-  [game]
+  "Dumps hands into discard, and sets the hands back to their fresh,
+  empty state."  [game]
   (let [deck (:deck game)
         discard (reduce into (map game [:discard :dealer :player]))
         [deck discard] (if (< (count deck) 52)
@@ -110,47 +108,42 @@
       [score (+ 10 score)]
       [score])))
 
-(defn highest-scores
-  [& hands]
-  (map (comp last
-             (partial filter #(<= % 21))
-             score-hand)
-       hands))
+(defn top-score
+  [hand]
+  (last (filter #(<= % 21)
+                (score-hand hand))))
 
-(defn some-hand [hand pred]
-  (some pred (score-hand hand)))
+(defn busted? [hand]
+  (every? #(> % 21) (score-hand hand)))
 
-(defn every-hand [hand pred]
-  (every? pred (score-hand hand)))
+(defn over-16? [hand]
+  (every? #(>= % 17) (score-hand hand)))
 
-(defn twenty-one? [hand] (some-hand hand #{21}))
-(defn busted? [hand] (every-hand hand #(> % 21)))
+(defn twenty-one? [hand]
+  (some #{21} (score-hand hand)))
 
-(defn push?
-  [hand1 hand2]
-  (apply = (highest-scores hand1 hand2)))
+(defn push? [hand1 hand2]
+  (= (top-score hand1)
+     (top-score hand2)))
 
-(defn beats?
-  [hand1 hand2]
-  (let [[s1 s2] (highest-scores hand1 hand2)]
-    (and (not (busted? hand1))
-         (> s1 s2))))
+(defn beats? [hand1 hand2]
+  (and (not (busted? hand1))
+       (> (top-score hand1)
+          (top-score hand2))))
 
-(defn broke?
-  [{:keys [chips current-bet]}]
+(defn broke? [{:keys [chips current-bet]}]
   (zero? (+ chips current-bet)))
 
 (defn get-outcome
-  [game surrender?]
-  (let [{:keys [dealer player turns]} game]
-    (cond surrender? :surrender
-          (busted? dealer) :win
-          (push? dealer player) :push
-          (beats? player dealer) (if (and (zero? turns)
-                                          (twenty-one? player))
-                                   :blackjack
-                                   :win)
-          :else :lose)))
+  [{:keys [dealer player turns]} surrender?]
+  (cond surrender? :surrender
+        (busted? dealer) :win
+        (push? dealer player) :push
+        (beats? player dealer) (if (and (zero? turns)
+                                        (twenty-one? player))
+                                 :blackjack
+                                 :win)
+        :else :lose))
 
 ;; ## Text Representations
 
@@ -247,9 +240,9 @@
           (recur chips bet-limit))
       bet)))
 
-(defn special-options [game]
-  (let [{:keys [turns chips current-bet bet-limit player]} game
-        first-turn? (zero? turns)
+(defn special-options
+  [{:keys [turns chips current-bet bet-limit player]}]
+  (let [first-turn? (zero? turns)
         funding? (and (>= chips current-bet)
                       (<= (* 2 current-bet) bet-limit))]
     (when first-turn?
@@ -267,19 +260,17 @@
 ;; ### Betting
 
 (defn make-bet
-  [game bet]
+  [{:keys [chips bet-limit] :as game} bet]
   {:post [(>= (:chips %) 0)
           (= bet (:current-bet %))
           (<= bet (:bet-limit %))]}
-  (let [{:keys [chips bet-limit]} game]
-    (assoc game
-      :chips (- chips bet)
-      :current-bet bet)))
+  (assoc game
+    :chips (- chips bet)
+    :current-bet bet))
 
 (defn resolve-bet
-  [game result]
-  (let [{:keys [chips current-bet]} game
-        pay (-> (case result
+  [{:keys [chips current-bet] :as game} result]
+  (let [pay (-> (case result
                       :surrender (/ 1 2)
                       :blackjack (/ 5 2)
                       :win 2
@@ -324,30 +315,23 @@
       (assoc :turns (-> game :turns inc))))
 
 (declare dealer-turn)
-
 (defn double-down
-  [game]
-  (let [{:keys [current-bet chips]} game]
-    (-> game
-        (assoc :current-bet (* 2 current-bet))
-        (assoc :chips (- chips current-bet))
-        (play-hit :player)
-        dealer-turn)))
-
-(defn surrender
-  [game]
-  (end-turn game :surrender? true))
+  [{:keys [current-bet chips] :as game}]
+  (-> game
+      (assoc :current-bet (* 2 current-bet))
+      (assoc :chips (- chips current-bet))
+      (play-hit :player)
+      dealer-turn))
 
 (defn dealer-turn
   [game]
-  (loop [game (show-hand game :dealer)]
-    (let [{:keys [dealer player]} game]
-      (print-interface game)
-      (Thread/sleep 600)
-      (if (or (every-hand dealer #(>= % 17))
-              (busted? player))
-        (end-turn game)
-        (recur (play-hit game :dealer))))))
+  (loop [{:keys [dealer player] :as game} (show-hand game :dealer)]
+    (print-interface game)
+    (Thread/sleep 600)
+    (if (or (over-16? dealer)
+            (busted? player))
+      (end-turn game)
+      (recur (play-hit game :dealer)))))
 
 (defn player-turn
   [game]
@@ -359,7 +343,7 @@
             :exit :quit
             :stay (dealer-turn game)
             :double-down (double-down game)
-            :surrender (surrender game)
+            :surrender (end-turn game :surrender? true)
             :hit (let [game (play-hit game :player)
                        player (:player game)]
                    (if (or (busted? player)
