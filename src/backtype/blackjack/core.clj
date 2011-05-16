@@ -237,7 +237,7 @@
        (prompt "Please hit enter to play again.")
        ret-game)))
 
-(defn enact-dealer
+(defn dealer-turn
   [game]
   (loop [game (show-hand game :dealer)]
     (let [dealer (:dealer game)]
@@ -247,7 +247,7 @@
         (end-turn game)
         (recur (play-hit game :dealer))))))
 
-(defn enact-player
+(defn player-turn
   [game]
   (let [{:keys [deck dealer player]} game]
     (if (twenty-one? (:player game))
@@ -256,11 +256,11 @@
         (print-interface game)
         (case (get-move)
               "exit" :quit
-              "stay" (enact-dealer game)
+              "stay" (dealer-turn game)
               "hit" (let [game (play-hit game :player)
                           {:keys [dealer player]} game]
                       (cond (busted? player) (end-turn game)
-                            (twenty-one? player) (enact-dealer game)
+                            (twenty-one? player) (dealer-turn game)
                             :else (recur game)))
               (do (prompt "Hmm, sorry, I didn't get that. Hit enter to continue.")
                   (recur game)))))))
@@ -270,4 +270,4 @@
     (loop [game (initial-deal game)]
       (if (= :quit game)
         "Goodbye!"
-        (recur (enact-player game))))))
+        (recur (player-turn game))))))
