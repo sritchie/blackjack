@@ -55,8 +55,7 @@
    :dealer empty-hand
    :chips chips
    :current-bet 0
-   :turns 0
-   :soft-17? (boolean soft)})
+   :turns 0})
 
 ;; ## Game Play Mechanics
 
@@ -285,11 +284,10 @@
   "Dealer takes his turn, following the rules of soft 17."
   [game & {:keys [double?]}]
   (loop [game (show-hand game :dealer)]
-    (let [{:keys [dealer player soft-17?]} game
-          hand-test (if soft-17? every-hand some-hand)]
+    (let [{:keys [dealer player]} game]
       (print-interface game)
       (Thread/sleep 600)
-      (if (or (hand-test dealer #(>= % 17))
+      (if (or (every-hand dealer #(>= % 17))
               (some-hand player #(>= % 21)))
         (end-turn game :double? double?)
         (recur (play-hit game :dealer))))))
@@ -333,8 +331,8 @@
                       "surrender" (surrender game))
                 (do (try-again) (recur game))))))))
 
-(defn -main [& {:keys [soft-17?]}]
-  (loop [game (new-game 500 *total-decks* soft-17?)]
+(defn -main []
+  (loop [game (new-game 500 *total-decks*)]
     (if (= :quit game)
       "Goodbye!"
       (recur (player-turn (start-turn game))))))
