@@ -13,11 +13,6 @@
                  (map inc (range)))
          {:jack 10 :queen 10 :king 10}))
 
-(def deck-seq
-  (for [suit suits
-        rank (keys ranks)]
-    {:suit suit :rank rank :showing? false}))
-
 (defn shuffle
   "Shuffles together any number of supplied decks."
   [& decks]
@@ -27,7 +22,8 @@
   "Returns `n` decks shuffled together."
   [n]
   {:pre [(pos? n)]}
-  (->> deck-seq
+  (->> (for [suit suits, rank (keys ranks)]
+         {:suit suit :rank rank :showing? false})
        (repeat n)
        (apply shuffle)))
 
@@ -47,39 +43,37 @@
    :current-bet 0
    :turns 0})
 
-;; ## Game Play Mechanics
+;; ## Game Verbs
 
-(defn set-cards-showing
+(defn set-showing
+  "For each card in `cards`, sets the values of `:showing?` to the
+  truthy value of `bool`."
   [cards bool]
-  {:pre [(contains? #{true false} bool)]}
-  (map #(assoc % :showing? bool)
+  (map #(assoc % :showing? (boolean bool))
        cards))
 
-(defn set-hand-showing
-  [bool game hand-kwd]
+(defn show-hand
+  [game player]
+  {:pre [(player game)]}
   (assoc game
-    hand-kwd (set-cards-showing (hand-kwd game)
-                                bool)))
-
-(def show-hand (partial set-hand-showing true))
-(def hide-hand (partial set-hand-showing false))
+    player (set-showing (player game)
+                        true)))
 
 (defn deal-cards
-  "Deals a card from the supplied deck into the supplied hand. If the
-  deck is empty, the deck will be refreshed before dealing a card out
-  to the players."
-  [game n hand-kwd & {:keys [show?]}]
-  {:pre [(-> game :deck count (>= n)), (hand-kwd game)]}
-  (let [[deck hand] (map game [:deck hand-kwd])
-        [cards new-deck] (split-at n deck)
-        cards (set-cards-showing cards (boolean show?))]
+  "Deals a card from the supplied deck to the player referenced by
+  `player`. If the deck is empty, the deck will be refreshed before
+  dealing a card out to the players."
+  [game n player & {:keys [show?]}]
+  {:pre [(-> game :deck count (>= n)), (player game)]}
+  (let [[cards new-deck] (split-at n (:deck game))
+        cards (set-showing cards show?)]
     (assoc game
-      hand-kwd (into hand cards)
+      player (into (player game) cards)
       :deck new-deck)))
 
 (defn dump-hands
-  "Dumps the contents of the hand into the given discard pile, and
-  sets the hand back to its fresh, empty state."
+  "Dumps hands into discard, and sets the hands back to their fresh,
+  empty state."
   [game]
   (let [deck (:deck game)
         discard (reduce into (map game [:discard :dealer :player]))
@@ -92,6 +86,55 @@
       :dealer empty-hand
       :player empty-hand
       :turns 0)))
+
+(defn dump-hands
+  "Dumps hands into discard, and sets the hands back to their fresh,
+  empty state."
+  [{:keys [deck discard dealer player] :as game}]
+  (let [discard (reduce into discard [dealer player])
+        [deck discard] (if (< (count deck) 52)
+                         [(shuffle deck discard) empty-discard]
+                         [deck discard])]
+    (assoc game
+      :deck deck
+      :discard discard
+      :dealer empty-hand
+      :player empty-hand
+      :turns 0)))
+
+(defn make-bet
+  [{:keys [chips bet-limit] :as game} bet]
+  {:post [(>= (:chips %) 0)
+          (= bet (:current-bet %))
+          (<= bet (:bet-limit %))]}
+  (assoc game
+    :chips (- chips bet)
+    :current-bet bet))
+
+(defn resolve-bet
+  [{:keys [chips current-bet] :as game} result]
+  (let [pay (-> (case result
+                      :surrender (/ 1 2)
+                      :blackjack (/ 5 2)
+                      :win 2
+                      :push 1
+                      :lose 0)
+                (* current-bet) Math/floor int)]
+    (assoc game
+      :chips (+ chips pay)
+      :current-bet 0)))
+
+(defn scale-bet
+  [{:keys [current-bet chips] :as game} scale]
+  (assoc game
+    :current-bet (* 2 current-bet)
+    :chips (- chips current-bet)))
+
+(defn play-hit
+  [game player]
+  (-> game
+      (deal-cards 1 player :show? true)
+      (assoc :turns (-> game :turns inc))))
 
 ;; ### Hand Scoring
 
@@ -110,47 +153,42 @@
       [score (+ 10 score)]
       [score])))
 
-(defn highest-scores
-  [& hands]
-  (map (comp last
-             (partial filter #(<= % 21))
-             score-hand)
-       hands))
+(defn top-score
+  [hand]
+  (last (filter #(<= % 21)
+                (score-hand hand))))
 
-(defn some-hand [hand pred]
-  (some pred (score-hand hand)))
+(defn busted? [hand]
+  (every? #(> % 21) (score-hand hand)))
 
-(defn every-hand [hand pred]
-  (every? pred (score-hand hand)))
+(defn over-16? [hand]
+  (every? #(>= % 17) (score-hand hand)))
 
-(defn twenty-one? [hand] (some-hand hand #{21}))
-(defn busted? [hand] (every-hand hand #(> % 21)))
+(defn twenty-one? [hand]
+  (some #{21} (score-hand hand)))
 
-(defn push?
-  [hand1 hand2]
-  (apply = (highest-scores hand1 hand2)))
+(defn push? [hand1 hand2]
+  (= (top-score hand1)
+     (top-score hand2)))
 
-(defn beats?
-  [hand1 hand2]
-  (let [[s1 s2] (highest-scores hand1 hand2)]
-    (and (not (busted? hand1))
-         (> s1 s2))))
+(defn beats? [hand1 hand2]
+  (and (not (busted? hand1))
+       (> (top-score hand1)
+          (top-score hand2))))
 
-(defn broke?
-  [{:keys [chips current-bet]}]
+(defn broke? [{:keys [chips current-bet]}]
   (zero? (+ chips current-bet)))
 
 (defn get-outcome
-  [game surrender?]
-  (let [{:keys [dealer player turns]} game]
-    (cond surrender? :surrender
-          (busted? dealer) :win
-          (push? dealer player) :push
-          (beats? player dealer) (if (and (zero? turns)
-                                          (twenty-one? player))
-                                   :blackjack
-                                   :win)
-          :else :lose)))
+  [{:keys [dealer player turns]} surrender?]
+  (cond surrender? :surrender
+        (busted? dealer) :win
+        (push? dealer player) :push
+        (beats? player dealer) (if (and (zero? turns)
+                                        (twenty-one? player))
+                                 :blackjack
+                                 :win)
+        :else :lose))
 
 ;; ## Text Representations
 
@@ -167,10 +205,8 @@
 (defn score-str
   "Returns a string representation of the score of the game."
   [hand]
-  (let [[score-a score-b] (filter #(<= % 21)
-                                  (score-hand hand))]
-    (when score-a
-      (apply str score-a (when score-b ["/" score-b])))))
+  (let [[s1 s2] (filter #(<= % 21) (score-hand hand))]
+    (str s1 (when s2 "/") s2)))
 
 (defn print-hand
   "Prints out a text representation of the supplied hand."
@@ -180,8 +216,7 @@
                "Hidden card."
                (format "%s of %s"
                        (name rank)
-                       (name suit)))))
-  (println))
+                       (name suit))))))
 
 (defn print-hands
   [game]
@@ -189,14 +224,13 @@
     (when-not (empty? dealer)
       (doseq [[holder title] [[dealer "Dealer's"]
                               [player "Your"]]
-              :let [points (->> holder
-                                (filter :showing?)
-                                score-str)]]
+              :let [points (score-str (filter :showing? holder))]]
         (println (str title " hand"
-                      (if points
-                        (format ", showing %s points:" points)
-                        " (a bust!)")))
-        (print-hand holder)))
+                      (if (= points "")
+                        " (a bust!)"
+                        (format ", showing %s points:" points))))
+        (print-hand holder)
+        (println)))
     game))
 
 (defn print-betline
@@ -219,13 +253,13 @@
 
 (defn get-move
   [choices]
-  (let [opt (keyword
-             (prompt (format "What is your move? Your choices are %s, and %s."
-                             (->> (butlast choices)
-                                  (map name)
-                                  (interpose ", ")
-                                  (apply str))
-                             (name (last choices)))))]
+  (let [prompt-str (format "What is your move? Your choices are %s, and %s."
+                           (->> (butlast choices)
+                                (map name)
+                                (interpose ", ")
+                                (apply str))
+                           (name (last choices)))
+        opt (keyword (prompt prompt-str))]
     (if-let [choice (some #{opt} choices)]
       choice
       (do (println "Hmm, sorry, I didn't get that. Let's try again.")
@@ -234,28 +268,27 @@
 (defn get-bet
   [chips bet-limit]
   (let [limit (if (< chips bet-limit) chips bet-limit)
-        bet (try (Integer.
-                  (prompt (format "How many chips (up to %d) would you like to bet?"
-                                  limit)))
+        prompt-str (format "How many chips (up to %d) would you like to bet?"
+                           limit)
+        bet (try (Integer. (prompt prompt-str))
                  (catch Exception e :invalid))]
-    (if-let [statement (cond
-                        (= :invalid bet) "Sorry, that input seems to be invalid."
-                        (<= bet 0) "Only positive bets, please."
-                        (> bet bet-limit) (str bet-limit " or fewer, please.")
-                        (neg? (- chips bet)) "Not enough funding for that!")]
+    (if-let [statement (cond (= :invalid bet) "Sorry, that input seems to be invalid."
+                             (<= bet 0) "Only positive bets, please."
+                             (> bet bet-limit) (str bet-limit " or fewer, please.")
+                             (neg? (- chips bet)) "Not enough funding for that!")]
       (do (println statement)
           (recur chips bet-limit))
       bet)))
 
-(defn special-options [game]
-  (let [{:keys [turns chips current-bet bet-limit player]} game
-        first-turn? (zero? turns)
+(defn special-options
+  [{:keys [turns chips current-bet bet-limit player]}]
+  (let [first-turn? (zero? turns)
         funding? (and (>= chips current-bet)
                       (<= (* 2 current-bet) bet-limit))]
     (when first-turn?
       (if funding?
         [:surrender :double-down]
-        [:surender]))))
+        [:surrender]))))
 
 (defn move-choices
   "These are all possible moves -- special moves "
@@ -264,31 +297,7 @@
           [(special-options game)
            [:exit]]))
 
-;; ### Betting
-
-(defn make-bet
-  [game bet]
-  {:post [(>= (:chips %) 0)
-          (= bet (:current-bet %))
-          (<= bet (:bet-limit %))]}
-  (let [{:keys [chips bet-limit]} game]
-    (assoc game
-      :chips (- chips bet)
-      :current-bet bet)))
-
-(defn resolve-bet
-  [game result]
-  (let [{:keys [chips current-bet]} game
-        pay (-> (case result
-                      :surrender (/ 1 2)
-                      :blackjack (/ 5 2)
-                      :win 2
-                      :push 1
-                      :lose 0)
-                (* current-bet) Math/floor int)]
-    (assoc game
-      :chips (+ chips pay)
-      :current-bet 0)))
+;; ### Gameplay
 
 (defn initial-deal
   [game]
@@ -311,43 +320,20 @@
         ret-game (-> game
                      (show-hand :dealer)
                      (resolve-bet result)
-                     print-interface
                      (print-outcome result)
                      dump-hands)]
     (prompt "Please hit enter to proceed.")
     ret-game))
 
-(defn play-hit
-  [game hand-kwd]
-  (-> game
-      (deal-cards 1 hand-kwd :show? true)
-      (assoc :turns (-> game :turns inc))))
-
-(declare dealer-turn)
-
-(defn double-down
-  [game]
-  (let [{:keys [current-bet chips]} game]
-    (-> game
-        (assoc :current-bet (* 2 current-bet))
-        (assoc :chips (- chips current-bet))
-        (play-hit :player)
-        dealer-turn)))
-
-(defn surrender
-  [game]
-  (end-turn game :surrender? true))
-
 (defn dealer-turn
   [game]
-  (loop [game (show-hand game :dealer)]
-    (let [{:keys [dealer player]} game]
-      (print-interface game)
-      (Thread/sleep 600)
-      (if (or (every-hand dealer #(>= % 17))
-              (busted? player))
-        (end-turn game)
-        (recur (play-hit game :dealer))))))
+  (loop [{:keys [dealer player] :as game} (show-hand game :dealer)]
+    (print-interface game)
+    (Thread/sleep 600)
+    (if (or (over-16? dealer)
+            (busted? player))
+      (end-turn game)
+      (recur (play-hit game :dealer)))))
 
 (defn player-turn
   [game]
@@ -358,8 +344,11 @@
       (case (-> game move-choices get-move)
             :exit :quit
             :stay (dealer-turn game)
-            :double-down (double-down game)
-            :surrender (surrender game)
+            :surrender (end-turn game :surrender? true)
+            :double-down (-> game
+                             (scale-bet 2)
+                             (play-hit :player)
+                             dealer-turn)
             :hit (let [game (play-hit game :player)
                        player (:player game)]
                    (if (or (busted? player)

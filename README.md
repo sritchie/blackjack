@@ -4,16 +4,7 @@ be using text.
 TODO:
 
 * Docs
-* splitting
-
 * Mention early surrender allowed.
-* CONSIDER what happens if someone doesn't have enough money to
-  double!
-* Force a quit at the end.
-* Use keywords instead of strings in the case statement, since we're
-* getting the move.
-* Separate user input from the functions that work on it
-http://www.pagat.com/banking/blackjack.html
 
 # BLACKJACK #
 
