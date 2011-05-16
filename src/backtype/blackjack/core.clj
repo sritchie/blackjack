@@ -61,6 +61,7 @@
   {:deck (new-deck decks)
    :discard (ref [])
    :chips (atom chips)
+   :current-bet 0
    :player-hand (new-hand)
    :dealer-hand (new-hand)})
 
@@ -170,13 +171,14 @@
   (some #{21} (score-hand hand)))
 
 (defn report-outcome
-  [reason dealer-hand player-hand]
-  (cond (busted? dealer-hand) (println "Player wins.")
-        (push? dealer-hand player-hand) (println "Push!")
-        (beats? player-hand dealer-hand) (if (= :blackjack reason) 
-                                           (println "Blackjack!")
-                                           (println "Player wins."))
-        :else (println "Dealer wins.")))
+  [game reason]
+  (let [{:keys [dealer-hand player-hand]} game]
+    (cond (busted? dealer-hand) (println "Player wins.")
+          (push? dealer-hand player-hand) (println "Push!")
+          (beats? player-hand dealer-hand) (if (= :blackjack reason) 
+                                             (println "Blackjack!")
+                                             (println "Player wins."))
+          :else (println "Dealer wins."))))
 
 ;; ## Text Representations
 
@@ -201,9 +203,10 @@
 
 (defn print-interface
   "TODO: Clean up the internal ref business."
-  [dealer-hand player-hand]
+  [game]
   (-> "clear" sh :out println)
-  (let [ds (score-str (ref (filter :showing? @dealer-hand)))
+  (let [{:keys [chips dealer-hand player-hand]} game
+        ds (score-str (ref (filter :showing? @dealer-hand)))
         ps (score-str player-hand)]
     (println (str "Dealer's hand" (if ds
                                     (format ", showing %s points:" ds)
@@ -212,7 +215,8 @@
     (println (str "Your hand" (if ps
                                 (format ", showing %s points:" ps)
                                 " (a bust!)")))
-    (print-hand player-hand)))
+    (print-hand player-hand)
+    (println "You have" @(:chips game) "total chips.\n")))
 
 ;; ## Game Loop Functions.
 
@@ -220,8 +224,13 @@
   (println message)
   (read-line))
 
+(defn get-bet
+  []
+  (prompt "How many chips would you like to bet?"))
+
 (defn get-move
-  "TODO: Filter the <= bullshit out into a function that takes a binary predicate and the second argument to that predicate."
+  "TODO: Filter the <= bullshit out into a function that takes a
+  binary predicate and the second argument to that predicate."
   []
   (prompt "What is your move? Your choices are hit, stay, or exit."))
 
@@ -245,12 +254,21 @@
     (dump-hands discard dealer-hand player-hand)
     (initial-deal game)))
 
+(defn remove-chips [pool amount]
+  (dosync (swap! pool - amount)))
+
+(defn settle-chips [game reason]
+  (dosync
+   (if (= reason :blackjack)
+     ())))
+
 (defn end-turn
   ([game & [reason]]
      (let [{:keys [dealer-hand player-hand]} game]
        (set-showing true dealer-hand)
-       (print-interface dealer-hand player-hand)
-       (report-outcome reason dealer-hand player-hand)
+       (settle-chips game reason)
+       (print-interface game)
+       (report-outcome game reason)
        (restart-hand game)
        (prompt "Please hit enter to play again."))))
 
@@ -259,7 +277,7 @@
   (let [{:keys [deck dealer-hand player-hand]} game]
     (set-showing true dealer-hand)
     (loop []
-      (print-interface dealer-hand player-hand)
+      (print-interface game)
       (Thread/sleep 600)
       (if (over-16? dealer-hand)
         (end-turn game)
@@ -272,7 +290,8 @@
     (if (twenty-one? player-hand)
       (end-turn game :blackjack)
       (loop []
-        (print-interface dealer-hand player-hand)
+        (print-interface game)
+        (make-bet game)
         (let [move (get-move)]
           (case move
                 "exit" :quit
