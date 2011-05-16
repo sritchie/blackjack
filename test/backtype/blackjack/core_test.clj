@@ -4,11 +4,11 @@
   (:use clojure.test))
 
 (def test-player
-  (ref [{:suit :spades, :rank :two, :showing? true}
-        {:suit :spades, :rank :ten, :showing? true}
-        {:suit :hearts, :rank :ten, :showing? true}]))
+  [{:suit :spades, :rank :two, :showing? true}
+   {:suit :spades, :rank :ten, :showing? true}
+   {:suit :hearts, :rank :ten, :showing? true}])
 
 (def test-dealer
-  (ref [{:suit :spades, :rank :two, :showing? true}
-        {:suit :spades, :rank :five, :showing? true}
-        {:suit :hearts, :rank :ten, :showing? true}]))
+  [{:suit :spades, :rank :two, :showing? true}
+   {:suit :spades, :rank :five, :showing? true}
+   {:suit :hearts, :rank :ten, :showing? true}])

@@ -5,10 +5,7 @@
 
 ;; ## Blackjack Data Structures
 
-(def *total-decks* 6)
-
-(def suits
-  #{:hearts :spades :clubs :diamonds})
+(def suits #{:hearts :spades :clubs :diamonds})
 
 (def ranks
   (merge (zipmap [:ace :two :three :four :five
@@ -16,27 +13,18 @@
                  (map inc (range)))
          {:jack 10 :queen 10 :king 10}))
 
-;; `deck-gen` generates every card in the deck, representing a card as
-;; a map with `:suit`, `:rank` and `:showing?`, to let us know if it's
-;; face up. This is going to be helpful in calculating the percent
-;; chance of winning a specific hand.
-;;
-;; Interesting to note that we can't actually use a set to represent a
-;; hand, if we're going to have multiple decks.
-
 (def deck-seq
   (for [suit suits
         rank (keys ranks)]
     {:suit suit :rank rank :showing? false}))
 
 (defn shuffle
-  "Shuffled the supplied (dereffed) decks together."
+  "Shuffles together any number of supplied decks."
   [& decks]
   (clojure.core/shuffle (reduce into decks)))
 
 (defn new-deck
-  "Returns a new, shuffled deck. If n is supplied, returns `n` decks
-   shuffled together."
+  "Returns `n` decks shuffled together."
   [n]
   {:pre [(pos? n)]}
   (->> deck-seq
@@ -48,9 +36,9 @@
 
 (defn new-game
   "Initializes a new game of Blackjack."
-  [chips decks soft]
+  [chips decks]
   {:deck (new-deck decks)
-   :discard []
+   :discard new-discard
    :player empty-hand
    :dealer empty-hand
    :chips chips
@@ -59,16 +47,17 @@
 
 ;; ## Game Play Mechanics
 
-(defn set-card-showing
-  [bool card]
-  {:pre [(#{true false} bool)]}
-  (assoc card :showing? bool))
+(defn set-cards-showing
+  [cards bool]
+  {:pre [(contains? #{true false} bool)]}
+  (map #(assoc % :showing? bool)
+       cards))
 
 (defn set-hand-showing
   [bool game hand-kwd]
   (assoc game
-    hand-kwd (map (partial set-card-showing bool)
-                  (hand-kwd game))))
+    hand-kwd (set-cards-showing (hand-kwd game)
+                                bool)))
 
 (def show-hand (partial set-hand-showing true))
 (def hide-hand (partial set-hand-showing false))
@@ -81,8 +70,7 @@
   {:pre [(-> game :deck count (>= n)), (hand-kwd game)]}
   (let [[deck hand] (map game [:deck hand-kwd])
         [cards new-deck] (split-at n deck)
-        cards (map #(assoc % :showing? (boolean show?))
-                   cards)]
+        cards (set-cards-showing cards (boolean show?))]
     (assoc game
       hand-kwd (into hand cards)
       :deck new-deck)))
@@ -152,7 +140,9 @@
                                    :win)
           :else :lose)))
 
-(defn report-outcome
+;; ## Text Representations
+
+(defn print-outcome
   [game outcome]
   (case outcome
         :surrender (println "Player surrendered.")
@@ -161,16 +151,6 @@
         :win (println "Player wins.")
         :lose (println "Dealer wins."))
   game)
-
-;; ## Text Representations
-
-(defn score-str
-  "Returns a string representation of the score of the game."
-  [hand]
-  (let [[score-a score-b] (filter #(<= % 21)
-                                  (score-hand hand))]
-    (when score-a
-      (apply str score-a (when score-b ["/" score-b])))))
 
 (defn print-hand
   "Prints out a text representation of the supplied hand."
@@ -182,6 +162,14 @@
                        (name rank)
                        (name suit)))))
   (println))
+
+(defn score-str
+  "Returns a string representation of the score of the game."
+  [hand]
+  (let [[score-a score-b] (filter #(<= % 21)
+                                  (score-hand hand))]
+    (when score-a
+      (apply str score-a (when score-b ["/" score-b])))))
 
 (defn print-hands
   [game]
@@ -207,7 +195,6 @@
     game))
 
 (defn print-interface
-  "TODO: Clean up this internal business."
   [game]
   (-> "clear" sh :out println)
   (-> game print-hands print-betline))
@@ -275,10 +262,27 @@
                      (show-hand :dealer)
                      (resolve-bet result double?)
                      print-interface
-                     (report-outcome result)
+                     (print-outcome result)
                      dump-hands)]
     (prompt "Please hit enter to play again.")
     ret-game))
+
+(defn play-hit
+  [game hand-kwd]
+  (-> game
+      (deal-cards 1 hand-kwd :show? true)
+      (assoc :turns (-> game :turns inc))))
+
+(declare dealer-turn)
+(defn double-down
+  [game]
+  (-> game
+      (play-hit :player)
+      (dealer-turn :double? true)))
+
+(defn surrender
+  [game]
+  (end-turn game :surrender? true))
 
 (defn dealer-turn
   "Dealer takes his turn, following the rules of soft 17."
@@ -291,22 +295,6 @@
               (some-hand player #(>= % 21)))
         (end-turn game :double? double?)
         (recur (play-hit game :dealer))))))
-
-(defn play-hit
-  [game hand-kwd]
-  (-> game
-      (deal-cards 1 hand-kwd :show? true)
-      (assoc :turns (-> game :turns inc))))
-
-(defn double-down
-  [game]
-  (-> game
-      (play-hit :player)
-      (dealer-turn :double? true)))
-
-(defn surrender
-  [game]
-  (end-turn game :surrender? true))
 
 (defn player-turn
   [game]
@@ -331,8 +319,10 @@
                       "surrender" (surrender game))
                 (do (try-again) (recur game))))))))
 
-(defn -main []
-  (loop [game (new-game 500 *total-decks*)]
-    (if (= :quit game)
-      "Goodbye!"
-      (recur (player-turn (start-turn game))))))
+(defn -main
+  ([] (-main 6))
+  ([decks]
+     (loop [game (new-game 500 decks)]
+       (if (= :quit game)
+         "Goodbye!"
+         (recur (player-turn (start-turn game)))))))
