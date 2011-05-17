@@ -103,7 +103,7 @@
   (are [bool a-cards b-cards] (= bool (push? (map mk-card a-cards)
                                              (map mk-card b-cards)))
        true [:ace :king] [:ace :jack]
-       true [:ace :five :two] [:jack :nine]
+       false [:ace :five :two] [:jack :nine]
        false [:king :king] [:ace :jack]
        false [:ace :king] [:ace :jack :two]))
 
@@ -120,3 +120,7 @@
 (deftest game-outcome-test
   (is (= :surrender
          (game-outcome example-game true))))
+
+#_(deftest score-str-test
+  )
+
