@@ -23,4 +23,9 @@ To run the game, all that's needed is:
 
     java -jar blackjack-standalone.jar
 
+### Running from Code ###
+
+    $ lein repl
+    backtype.blackjack.core=> (-main)
+
 
