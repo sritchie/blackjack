@@ -1,11 +1,6 @@
-I'd like to map out the course of the initial game, given that we'll
-be using text.
+# Functional Blackjack #
 
-TODO:
+This project contains all code necessary to play an epic game of
+functional blackjack.
 
-* Docs
-* Mention early surrender allowed.
-
-* min bet 5 in a casino, betting has to happen in increments of five.
-* ASCII character for cards
-* Make a comment about the minimum bet. how many chips, 5 to 100
+## Running Instructions ##

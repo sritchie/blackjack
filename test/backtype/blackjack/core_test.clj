@@ -116,11 +116,47 @@
                  (make-bet 50)
                  (resolve-bet :win))))
 
-;; TODO: More tests here.
 (deftest game-outcome-test
-  (is (= :surrender
-         (game-outcome example-game true))))
+  (let [game-seq (fn [kwd] (iterate #(play-hit % kwd) example-game))]
+    (is (= :surrender (game-outcome example-game true)))
+    (is (= :win (game-outcome (nth (game-seq :dealer) 10) false)))
+    (is (= :lose (game-outcome (nth (game-seq :player) 10) false)))))
 
-#_(deftest score-str-test
-  )
+(deftest score-str-test
+  (are [str cards] (= str (score-str (map mk-card cards)))
+       "1/11" [:ace]
+       "6/16" [:ace :five]
+       "11/21" [:ace :five :five]
+       "13" [:ace :five :five :two]
+       "21" [:ten :ten :ace]))
+
+(deftest get-move-test
+  (let [choices (move-choices example-game)]
+    (are [in-str choice] (= choice (with-in-str in-str
+                                     (get-move choices)))
+         "hit" :hit
+         "stay" :stay
+         "surrender" :surrender)))
+
+(deftest get-bet-test
+  (are [chips limit in-str bet] (= bet (with-in-str in-str
+                                         (get-bet chips limit)))
+       500 100 "exit" :exit
+       500 100 "99" 99))
+
+(deftest special-options-test
+  (is (= [:surrender :double-down] (special-options example-game)))
+  (is (nil? (-> example-game (play-hit :player) special-options))))
+
+(deftest move-choices-test
+  (is (= [:hit :stay :surrender :double-down] (move-choices example-game)))
+  (is (= [:hit :stay] (-> example-game (play-hit :player) move-choices))))
+
+(deftest initial-deal-test
+  (are [kwd ct] (= ct (count (kwd (initial-deal example-game))))
+       :player 2
+       :dealer 2)
+  (is (= (- (count (:deck example-game)) 4)
+         (count (:deck (initial-deal example-game))))))
+
 
