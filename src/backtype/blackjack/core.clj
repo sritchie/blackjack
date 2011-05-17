@@ -188,7 +188,7 @@
   (every? #(>= % 17) (score-hand hand)))
 
 (defn twenty-one? [hand]
-  (some #{21} (score-hand hand)))
+  (boolean (some #{21} (score-hand hand))))
 
 (defn push?
   "Returns true of the top scores of the two supplied hands match,

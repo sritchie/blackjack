@@ -66,6 +66,57 @@
                     (:chips (scale-bet game scale)))
          2, 1, 0.5, 0.2, 10)))
 
+(deftest play-hit-test
+  (let [game (-> example-game (play-hit :player))]
+    (is (= 1 (count (:player game))))
+    (is (= (dec (count (:deck example-game)))
+           (count (:deck game))))
+    (is (= 2 (count (:player (-> game (play-hit :player))))))
+    (is (= 1 (count (:dealer (-> game (play-hit :dealer))))))
+    (is (= 0 (count (:dealer game))))))
 
+(deftest score-hand-test
+  (are [scores cards] (= scores (score-hand (map mk-card cards)))
+       [1 11] [:ace]
+       [2 12] [:ace :ace]
+       [11 21] [:ace :ten]
+       [12] [:two :jack]
+       [13 23] [:eight :four :ace])
+  (are [top cards] (= top (top-score (map mk-card cards)))
+       11 [:ace]
+       12 [:ace :ace]
+       15 [:jack :two :ace :two]
+       nil [:ten :ten :ten]))
 
+(deftest hand-predicates-test
+  (are [bool func cards] (= bool (func (map mk-card cards)))
+       true busted? [:ten :five :five :five]
+       false busted? [:ten :five :five :ace]
+       false busted? [:ace :ace]
+       false over-16? [:seven :ace]
+       true over-16? [:seven :ace :king]
+       true twenty-one? [:ace :king]
+       true twenty-one? [:ace :king :king]
+       false twenty-one? [:ace :five]))
 
+(deftest push?-test
+  (are [bool a-cards b-cards] (= bool (push? (map mk-card a-cards)
+                                             (map mk-card b-cards)))
+       true [:ace :king] [:ace :jack]
+       true [:ace :five :two] [:jack :nine]
+       false [:king :king] [:ace :jack]
+       false [:ace :king] [:ace :jack :two]))
+
+(deftest broke?-test
+  (are [bool game] (= bool (broke? game))
+       true (-> (new-game 50 50 6)
+                (make-bet 50)
+                (resolve-bet :lose))
+       false (-> (new-game 50 50 6)
+                 (make-bet 50)
+                 (resolve-bet :win))))
+
+;; TODO: More tests here.
+(deftest game-outcome-test
+  (is (= :surrender
+         (game-outcome example-game true))))
