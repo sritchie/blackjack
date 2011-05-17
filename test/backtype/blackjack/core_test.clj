@@ -43,4 +43,29 @@
     (is (= 5 (count (:discard (dump-hands game))))
         "Discard should have 5 cards after `dump-hands`.")))
 
+(deftest bet-test
+  (let [bet-amount 20
+        old-chips (:chips example-game)
+        {:keys [chips bet-limit current-bet] :as game}
+        (-> example-game (make-bet bet-amount))]
+    (is (= bet-amount current-bet))
+    (is (= (- old-chips bet-amount)
+           chips))
+    (is (thrown? AssertionError (make-bet example-game
+                                          (inc chips))))
+    (is (thrown? AssertionError (make-bet example-game
+                                          (inc bet-limit))))
+    (are [outcome chip-val] (= chip-val
+                               (:chips (resolve-bet game outcome)))
+         :lose (- old-chips bet-amount)
+         :push old-chips
+         :win (+ old-chips bet-amount)
+         :surrender (- old-chips (/ bet-amount 2))
+         :blackjack (+ old-chips (* bet-amount (/ 3 2))))
+    (are [scale] (= (- old-chips (* scale bet-amount))
+                    (:chips (scale-bet game scale)))
+         2, 1, 0.5, 0.2, 10)))
+
+
+
 
