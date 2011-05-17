@@ -39,7 +39,8 @@
   number of decks will be used -- BackType's Blackjack requires
   between 4 and 8 decks."
   [chips bet-limit decks]
-  {:pre [(>= decks 4) (<= decks 8)]}
+  {:pre [(>= decks 4), (<= decks 8)
+         (pos? chips), (pos? bet-limit)]}
   {:deck (new-deck decks)
    :discard empty-discard
    :player empty-hand
@@ -49,6 +50,18 @@
    :bet-limit bet-limit
    :current-bet 0
    :turns 0})
+
+(def outcome-map
+  {:surrender {:message "Player surrendered."
+               :payout (/ 1 2)}
+   :blackjack {:message "Blackjack!"
+               :payout (/ 5 2)}
+   :push      {:message "Push!"
+               :payout 1}
+   :win       {:message "Player wins."
+               :payout 2}
+   :lose      {:message "Dealer wins."
+               :payout 0}})
 
 ;; ## Game Verbs
 
@@ -115,15 +128,12 @@
   back into the pool. If the game was a loss, all chips disappear, of
   course."
   [{:keys [chips current-bet] :as game} result]
-  (let [pay (-> (case result
-                      :surrender (/ 1 2)
-                      :blackjack (/ 5 2)
-                      :win 2
-                      :push 1
-                      :lose 0)
-                (* current-bet) Math/floor int)]
+  {:pre [(contains? outcome-map result)]}
+  (let [pay (->> (get-in outcome-map [result :payout])
+                (* current-bet)
+                Math/floor)]
     (assoc game
-      :chips (+ chips pay)
+      :chips (+ chips (int pay))
       :current-bet 0)))
 
 (defn scale-bet
@@ -150,10 +160,10 @@
 ;; ### Hand Predicates
 
 (defn score-hand
-  "Returns up to two possible scores for the supplied deal. An ace can
-  never count as 11 more than once, as this would cause an instant
-  bust -- we accept an optional argument that returns the highest
-  possible value of rank, based on the presence of an ace."
+  "Returns a vector of up to two possible scores for the supplied
+  hand; if an ace exists in the hand and a value of 11 wouldn't cause
+  a bust, two scores are returned. (An ace can never count as 11 more
+  than once, as this would cause an instant bust)."
   [hand]
   (let [rank-seq (map :rank hand)
         score (reduce (fn [acc card]
@@ -165,6 +175,8 @@
       [score])))
 
 (defn top-score
+  "Returns the greatest legal score (21 or under) possible with the
+  supplied hand."
   [hand]
   (last (filter #(<= % 21)
                 (score-hand hand))))
@@ -178,19 +190,31 @@
 (defn twenty-one? [hand]
   (some #{21} (score-hand hand)))
 
-(defn push? [hand1 hand2]
+(defn push?
+  "Returns true of the top scores of the two supplied hands match,
+  false otherwise."
+  [hand1 hand2]
   (= (top-score hand1)
      (top-score hand2)))
 
-(defn beats? [hand1 hand2]
+(defn beats?
+  "Returns true if the `hand1` achieve a higher score than `hand2`
+  without busting, false otherwise."
+  [hand1 hand2]
   (and (not (busted? hand1))
        (> (top-score hand1)
           (top-score hand2))))
 
-(defn broke? [{:keys [chips current-bet]}]
+(defn broke?
+  "Returns true of the supplied game contains no chips, between the
+  pool and the current bet, and false otherwise."
+  [{:keys [chips current-bet]}]
   (zero? (+ chips current-bet)))
 
-(defn get-outcome
+(defn game-outcome
+  "Returns a keyword representation of the outcome of the supplied
+  game. The boolean `surrender?` indicates whether or not the supplied
+  game was surrendered by the user."
   [{:keys [dealer player turns]} surrender?]
   (cond surrender? :surrender
         (busted? dealer) :win
@@ -204,23 +228,24 @@
 ;; ## Text Representations
 
 (defn score-str
-  "Returns a string representation of the score of the game."
+  "Returns a string representation of every possible score of the
+  supplied hand."
   [hand]
   (let [[s1 s2] (filter #(<= % 21) (score-hand hand))]
     (str s1 (when s2 "/") s2)))
 
 (defn print-outcome
+  "Writes the appropriate outcome message for the supplied key
+  `outcome` the to the output stream."
   [game outcome]
-  (case outcome
-        :surrender (println "Player surrendered.")
-        :blackjack (println "Blackjack!")
-        :push (println "Push!")
-        :win (println "Player wins.")
-        :lose (println "Dealer wins."))
+  {:pre [(contains? outcome-map outcome)]}
+  (println (get-in outcome-map [outcome :message]))
   game)
 
 (defn print-hand
-  "Prints out a text representation of the supplied hand."
+  "Writes a text representation of the supplied hand to the output
+  stream. The value of cards with `:showing?` set to false will not be
+  revealed."
   [hand]
   (doseq [card hand :let [{:keys [suit rank showing?]} card]]
     (println (if-not showing?
@@ -230,6 +255,10 @@
                        (name suit))))))
 
 (defn print-hands
+  "For the supplied game, prints a text representation of the player's
+  and dealer's hands to the output stream, along with a header line
+  and a report of the current showing points. Other than output side
+  effects, acts as identity and returns game."
   [game]
   (let [{:keys [dealer player]} game]
     (when-not (empty? dealer)
@@ -241,17 +270,23 @@
                         " (a bust!)"
                         (format ", showing %s points:" points))))
         (print-hand holder)
-        (println)))
+        (newline)))
     game))
 
 (defn print-betline
-  [game]
-  (let [{:keys [chips current-bet]} game]
-    (println (format "You have %d chips left. Your current bet is %d.\n"
-                     chips current-bet))
-    game))
+  "Prints a text representation of the current number of remaining
+  chips and the current bet to the output stream. Other than output
+  side effects, acts as identity and returns game."
+  [{:keys [chips current-bet] :as game}]
+  (println (format "You have %d chips left. Your current bet is %d.\n"
+                   chips current-bet))
+  game)
 
 (defn print-interface
+  "Clears the terminal screen, and prints a text representation of the
+  entire game interface to the output stream. Note that this function
+  will only succeed if run from a unix terminal capable of accepting
+  the `clear` command."
   [game]
   (-> "clear" sh :out println)
   (-> game print-hands print-betline))
@@ -263,6 +298,8 @@
   (read-line))
 
 (defn get-move
+  "Obtains a choice from among the supplied `choices` sequence by
+  querying the current value of *in*."
   [choices]
   (let [prompt-str (format "What is your move? Your choices are %s, and %s."
                            (->> (butlast choices)
@@ -277,6 +314,8 @@
           (recur choices)))))
 
 (defn get-bet
+  "Obtains a valid bet (based on the value of `chips` and the supplied
+  bet limit) by querying the current value of *in*."
   [chips bet-limit]
   (let [limit (if (< chips bet-limit) chips bet-limit)
         prompt-str (format "How many chips (up to %d) would you like to bet?"
@@ -292,6 +331,12 @@
       bet)))
 
 (defn special-options
+  "Returns a sequence of non-standard blackjack options, based on the
+  state of the supplied game.
+
+  Different variations on the game allow different moves, such as
+  doubling down, only on the first turn. All such special cases are
+  covered within."
   [{:keys [turns chips current-bet bet-limit player]}]
   (let [first-turn? (zero? turns)
         funding? (and (>= chips current-bet)
@@ -302,7 +347,8 @@
         [:surrender]))))
 
 (defn move-choices
-  "These are all possible moves -- special moves "
+  "Returns a sequence of all possible moves, given the current state
+  of the supplied game."
   [game]
   (reduce into [:hit :stay]
           [(special-options game)
@@ -311,6 +357,9 @@
 ;; ### Gameplay
 
 (defn initial-deal
+  "Returns a new game generated by dealing 2 cards to the dealer and
+  the player. As is standard, the dealer gets to keep one card face
+  down."
   [game]
   (-> game
       (deal-cards 2 :player :show? true)
@@ -318,6 +367,8 @@
       (deal-cards 1 :dealer :show? false)))
 
 (defn start-turn
+  "Returns a new game generated by accepting a bet from the user, and
+  setting up the initials state of the game."
   [game]
   (let [{:keys [chips bet-limit]} game]
     (-> game
@@ -326,8 +377,11 @@
         initial-deal)))
 
 (defn end-turn
+  "Returns a new game generated by resolving all bets, adjusting the
+  chips pool accordingly, and waiting for the user's prompt to
+  proceed."
   [game & {:keys [surrender?]}]
-  (let [result (get-outcome game surrender?)
+  (let [result (game-outcome game surrender?)
         ret-game (-> game
                      (show-hand :dealer)
                      (resolve-bet result)
@@ -337,6 +391,9 @@
     ret-game))
 
 (defn dealer-turn
+  "Game loop of the dealer. Plays out a dealer's hand, following
+  blackjack's rules for a dealer forced to hit on a soft 17, and
+  returns the resulting game."
   [game]
   (loop [{:keys [dealer player] :as game} (show-hand game :dealer)]
     (print-interface game)
@@ -347,6 +404,12 @@
       (recur (play-hit game :dealer)))))
 
 (defn player-turn
+  "The player's game loop. With appropriate input from the user, plays
+  out a hand until the user busts, reaches 21, or calls stay. After
+  this, the game will be resolved by allowing the daeler to play out a
+  hand or jumping directly to bet resolution, as appropriate for the
+  turn in question. Returns the state of the game reached by playing
+  out the current turn."
   [game]
   (if (-> game :player twenty-one?)
     (end-turn game)
@@ -368,12 +431,18 @@
                      (recur game)))
             (recur game)))))
 
+(defn game-loop
+  "Full game loop, housing the internal player and dealer loops and
+  allowing each to simulate state by continually recursing through
+  each with a game of blackjack. Exits when the user quits or runs out
+  of money."
+  [& {:keys [chips bet-limit decks]
+      :or {chips 500, bet-limit 100, decks 6}}]
+  (loop [game (new-game chips bet-limit decks)]
+    (cond (= game :quit) (println "Goodbye!")
+          (broke? game)  (println "Sorry, you're out of chips!")
+          :else          (recur (-> game start-turn player-turn)))))
+
 (defn -main
-  ([] (-main 6 100))
-  ([decks]
-     (-main decks 100))
-  ([decks bet-limit]
-     (loop [game (new-game 500 bet-limit decks)]
-       (cond (= game :quit) (println "Goodbye!")
-             (broke? game)  (println "Sorry, you're out of chips!")
-             :else          (recur (-> game start-turn player-turn))))))
+  [& args]
+  (apply game-loop (map read-string args)))
