@@ -1,6 +1,6 @@
-(ns backtype.blackjack.core-test
+(ns blackjack.core-test
   (:refer-clojure :exclude [shuffle])
-  (:use backtype.blackjack.core
+  (:use blackjack.core
         clojure.test))
 
 (deftest new-deck-test

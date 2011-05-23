@@ -1,20 +1,20 @@
 ;;; ## Functional Blackjack
 ;;;
 ;;; This namespace contains all code necessary to run a functional,
-;;; text-based game of blackjack. As per Nathan's instructions, I've
-;;; implemented support for each of the basic rules, plus support for
-;;; surrendering and doubling down. I decided to try and limit state
-;;; as much as possible -- blackjack's pure functions take in a game,
-;;; and return a new game updated to reflect the new state. The full
-;;; game loop is accomplished by recursing a game through the player
-;;; and dealer turn loops until the player either quits or busts.
+;;; text-based game of blackjack. I've implemented support for each of
+;;; the basic rules, plus support for surrendering and doubling
+;;; down. I decided to try and limit state as much as possible --
+;;; blackjack's pure functions take in a game, and return a new game
+;;; updated to reflect the new state. The game loop is realized by
+;;; recursing a game through the player and dealer turn loops until
+;;; the player either quits or busts.
 ;;;
 ;;; ### Assumptions and Notes
 ;;;
-;;; As instructed, I've forced the dealer to hit below 17 (soft or
-;;; not.) I've also offered the player the option to surrender early;
-;;; on surrender, the player receives half of the initial bet, whether
-;;; or not the dealer had a blackjack.
+;;; I've forced the dealer to hit below 17 (soft or not.) I've also
+;;; offered the player the option to surrender early; on surrender,
+;;; the player receives half of the initial bet, whether or not the
+;;; dealer had a blackjack.
 ;;;
 ;;; My doubling down implementation allows for doubled bets on the
 ;;; first turn, provided that the player can afford the doubled
@@ -32,7 +32,7 @@
 ;;; the end of a turn-- 52 cards, by default. I did this with an eye
 ;;; toward incorporating a card counting trainer, down the road.
 
-(ns backtype.blackjack.core
+(ns blackjack.core
   (:refer-clojure :exclude [shuffle])
   (:use [clojure.java.shell :only (sh)])
   (:gen-class))
