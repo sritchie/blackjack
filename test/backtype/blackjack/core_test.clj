@@ -135,6 +135,7 @@
     (are [in-str choice] (= choice (with-in-str in-str
                                      (get-move choices)))
          "hit" :hit
+         "sdf\nacdsadc\nhit" :hit
          "stay" :stay
          "surrender" :surrender)))
 

@@ -319,19 +319,18 @@
   and dealer's hands to the output stream, along with a header line
   and a report of the current showing points. Other than output side
   effects, acts as identity and returns game."
-  [game]
-  (let [{:keys [dealer player]} game]
-    (when-not (empty? dealer)
-      (doseq [[holder title] [[dealer "Dealer's"]
-                              [player "Your"]]
-              :let [points (score-str (filter :showing? holder))]]
-        (println (str title " hand"
-                      (if (= points "")
-                        " (a bust!)"
-                        (format ", showing %s points:" points))))
-        (print-hand holder)
-        (newline)))
-    game))
+  [{:keys [dealer player] :as game}]
+  (when-not (empty? dealer)
+    (doseq [[holder title] [[dealer "Dealer's"]
+                            [player "Your"]]
+            :let [points (score-str (filter :showing? holder))]]
+      (println (str title " hand"
+                    (if (= points "")
+                      " (a bust!)"
+                      (format ", showing %s points:" points))))
+      (print-hand holder)
+      (newline)))
+  game)
 
 (defn print-betline
   "Prints a text representation of the current number of remaining
