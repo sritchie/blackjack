@@ -380,7 +380,8 @@
   [chips bet-limit]
   (let [limit (min chips bet-limit)
         in-str "How many chips (from 1 to %d) would you like to bet? (Or, type exit to quit.)"
-        input (prompt (format in-str limit))
+        input (or (prompt (format in-str limit))
+                  "exit") ; user typed EOF
         bet (try (Integer. input)
                  (catch Exception e input))
         statement (cond (string? bet) "Sorry, that input seems to be invalid."
